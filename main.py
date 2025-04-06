@@ -638,13 +638,13 @@ def apply_autotune_effect(audio, sample_rate):
         return audio, sample_rate
 
 def apply_autotune_effect_2(audio, sample_rate):
-    """Альтернативный вариант автотюна - более надежный и заметный"""
+    """Альтернативный вариант автотюна - максимально заметный эффект"""
     # Импортируем необходимые библиотеки
     import numpy as np
     import librosa
     import soundfile as sf
     
-    logger.info("=== НАЧАЛО АВТОТЮНА 2 ===")
+    logger.info("=== НАЧАЛО АВТОТЮНА 2 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) ===")
     logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
     logger.info(f"Частота дискретизации: {sample_rate}")
     logger.info(f"Диапазон входного аудио: [{np.min(audio)}, {np.max(audio)}]")
@@ -659,8 +659,8 @@ def apply_autotune_effect_2(audio, sample_rate):
         logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
         # Разбиваем аудио на фреймы
-        frame_length = 2048
-        hop_length = 512
+        frame_length = 1024  # Уменьшаем размер фрейма для более быстрой реакции
+        hop_length = 256    # Уменьшаем перекрытие для более частой коррекции
         logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
         frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
         logger.info(f"Разбито на {frames.shape[1]} фреймов")
@@ -718,15 +718,15 @@ def apply_autotune_effect_2(audio, sample_rate):
                 # Вычисляем необходимое изменение высоты тона
                 n_steps = target_note - current_note
                 
-                # Усиливаем эффект
-                n_steps = n_steps * 2.0  # Усиливаем на 100%
+                # Усиливаем эффект в 3 раза
+                n_steps = n_steps * 3.0
                 
-                # Добавляем вибрато
-                vibrato = 0.5 * np.sin(2 * np.pi * 5 * i / frames.shape[1])
+                # Добавляем сильное вибрато
+                vibrato = 1.0 * np.sin(2 * np.pi * 7 * i / frames.shape[1])  # Увеличили амплитуду и частоту
                 n_steps = n_steps + vibrato
                 
                 # Ограничиваем максимальное изменение
-                n_steps = np.clip(n_steps, -24, 24)
+                n_steps = np.clip(n_steps, -36, 36)  # Увеличили диапазон до 3 октав
                 logger.debug(f"Фрейм {i}: изменение высоты тона = {n_steps}")
                 
                 # Применяем изменение высоты тона
@@ -734,7 +734,7 @@ def apply_autotune_effect_2(audio, sample_rate):
                     frame,
                     sr=sample_rate,
                     n_steps=n_steps,
-                    bins_per_octave=24
+                    bins_per_octave=48  # Увеличили разрешение
                 )
             else:
                 processed_frame = frame
@@ -753,11 +753,19 @@ def apply_autotune_effect_2(audio, sample_rate):
         processed_audio = processed_audio / np.max(np.abs(processed_audio))
         logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
         
-        # Добавляем реверберацию
-        logger.info("Добавляем реверберацию...")
-        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.97)
+        # Добавляем сильную реверберацию
+        logger.info("Добавляем сильную реверберацию...")
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.99)  # Усилили предыскажение
         
-        logger.info("=== АВТОТЮН 2 УСПЕШНО ЗАВЕРШЕН ===")
+        # Добавляем дополнительное усиление эффекта
+        processed_audio = librosa.effects.pitch_shift(
+            processed_audio,
+            sr=sample_rate,
+            n_steps=2,  # Небольшой дополнительный сдвиг
+            bins_per_octave=48
+        )
+        
+        logger.info("=== АВТОТЮН 2 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
