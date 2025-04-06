@@ -16,6 +16,7 @@ import subprocess
 import librosa
 import pyworld as pw
 from scipy.interpolate import interp1d
+import scipy
 
 # Настройка логирования
 logging.basicConfig(
@@ -453,18 +454,77 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.debug(f"Текущее состояние voice_messages: {voice_messages}")
 
 def apply_robot_effect(audio, sample_rate):
-    """Применение эффекта робота"""
-    logger.debug("Применение эффекта робота")
-    # Добавляем фазовое искажение
-    processed_audio = np.zeros_like(audio)
-    for i in range(len(audio)):
-        processed_audio[i] = np.sin(audio[i] * 10) * 0.5
-    
-    # Добавляем шум
-    noise = np.random.normal(0, 0.1, len(audio))
-    processed_audio = processed_audio + noise
-    
-    return processed_audio
+    """Применяет эффект робота к аудио"""
+    try:
+        logger.info("=== НАЧАЛО ЭФФЕКТА РОБОТА ===")
+        
+        # Нормализуем аудио
+        audio = audio / np.max(np.abs(audio))
+        logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
+        
+        # Применяем шумоподавление
+        logger.info("Применяем шумоподавление...")
+        # Используем медианный фильтр для удаления шума
+        audio = scipy.signal.medfilt(audio, kernel_size=5)
+        
+        # Разбиваем аудио на фреймы
+        frame_length = 1024
+        hop_length = 256
+        logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
+        frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
+        logger.info(f"Разбито на {frames.shape[1]} фреймов")
+        
+        # Применяем эффект к каждому фрейму
+        logger.info("Начинаем обработку фреймов...")
+        processed_frames = []
+        for i in range(frames.shape[1]):
+            frame = frames[:, i]
+            
+            # Применяем быстрое преобразование Фурье
+            frame_fft = np.fft.rfft(frame)
+            
+            # Усиливаем высокие частоты для более "металлического" звука
+            freq = np.fft.rfftfreq(len(frame), 1.0/sample_rate)
+            high_freq_mask = freq > 1000  # Частоты выше 1 кГц
+            frame_fft[high_freq_mask] *= 2.0  # Усиливаем высокие частоты
+            
+            # Добавляем гармоники для более "роботизированного" звука
+            harmonics = np.zeros_like(frame_fft)
+            for h in range(2, 5):  # Добавляем 2-ю, 3-ю и 4-ю гармоники
+                if h * len(frame_fft) < len(frame_fft):
+                    harmonics[:len(frame_fft)//h] += frame_fft[::h] * 0.5
+            frame_fft += harmonics
+            
+            # Обратное преобразование Фурье
+            processed_frame = np.fft.irfft(frame_fft)
+            
+            # Нормализуем фрейм
+            processed_frame = processed_frame / np.max(np.abs(processed_frame))
+            
+            processed_frames.append(processed_frame)
+        
+        # Собираем обработанные фреймы обратно в аудио
+        logger.info("Собираем обработанные фреймы...")
+        processed_audio = librosa.util.overlap_and_add(np.array(processed_frames).T, hop_length=hop_length)
+        
+        # Обрезаем до исходной длины
+        processed_audio = processed_audio[:len(audio)]
+        
+        # Нормализуем
+        processed_audio = processed_audio / np.max(np.abs(processed_audio))
+        logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
+        
+        # Добавляем легкую реверберацию
+        logger.info("Добавляем легкую реверберацию...")
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.97)
+        
+        logger.info("=== ЭФФЕКТ РОБОТА УСПЕШНО ЗАВЕРШЕН ===")
+        return processed_audio, sample_rate
+        
+    except Exception as e:
+        logger.error(f"Ошибка при применении эффекта робота: {str(e)}")
+        logger.exception("Полный стек ошибки:")
+        return audio, sample_rate
 
 def apply_rough_voice(audio, sample_rate):
     """Применение эффекта грубого голоса"""
