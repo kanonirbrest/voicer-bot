@@ -326,8 +326,7 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_sample_rate = sample_rate
                 elif effect == 'rough':
                     logger.debug("Начало применения эффекта грубого голоса")
-                    processed_audio = apply_rough_voice_effect(wav_data, sample_rate)
-                    new_sample_rate = sample_rate
+                    processed_audio, new_sample_rate = apply_rough_voice_effect(wav_data, sample_rate)
                 elif effect == 'echo':
                     logger.debug("Начало применения эффекта эха")
                     processed_audio = apply_echo_effect(wav_data, sample_rate)
@@ -906,9 +905,9 @@ def apply_autotune_effect_2(audio, sample_rate):
         return audio, sample_rate
 
 def apply_autotune_effect_3(audio, sample_rate):
-    """Третий вариант автотюна - музыкальная обработка с использованием pydub"""
+    """Третий вариант автотюна - максимально заметный музыкальный эффект"""
     try:
-        logger.info("=== НАЧАЛО АВТОТЮНА 3 (МУЗЫКАЛЬНЫЙ) ===")
+        logger.info("=== НАЧАЛО АВТОТЮНА 3 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) ===")
         logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
         logger.info(f"Частота дискретизации: {sample_rate}")
         
@@ -917,8 +916,8 @@ def apply_autotune_effect_3(audio, sample_rate):
         logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
         # Разбиваем аудио на фреймы
-        frame_length = 2048
-        hop_length = 512
+        frame_length = 1024  # Уменьшаем размер фрейма для более резких переходов
+        hop_length = 256    # Уменьшаем перекрытие для более частой коррекции
         logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
         frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
         logger.info(f"Разбито на {frames.shape[1]} фреймов")
@@ -981,12 +980,15 @@ def apply_autotune_effect_3(audio, sample_rate):
                 # Вычисляем необходимое изменение высоты тона
                 n_steps = target_note - current_note
                 
-                # Добавляем музыкальное вибрато
-                vibrato = 0.3 * np.sin(2 * np.pi * 5 * i / frames.shape[1])
+                # Усиливаем эффект в 3 раза
+                n_steps = n_steps * 3.0
+                
+                # Добавляем сильное вибрато
+                vibrato = 1.0 * np.sin(2 * np.pi * 7 * i / frames.shape[1])  # Увеличили амплитуду и частоту
                 n_steps = n_steps + vibrato
                 
                 # Ограничиваем максимальное изменение
-                n_steps = np.clip(n_steps, -12, 12)  # Одна октава вверх или вниз
+                n_steps = np.clip(n_steps, -36, 36)  # Увеличили диапазон до 3 октав
                 logger.debug(f"Фрейм {i}: изменение высоты тона = {n_steps}")
                 
                 # Применяем изменение высоты тона
@@ -994,7 +996,7 @@ def apply_autotune_effect_3(audio, sample_rate):
                     frame,
                     sr=sample_rate,
                     n_steps=n_steps,
-                    bins_per_octave=24
+                    bins_per_octave=48  # Увеличили разрешение
                 )
             else:
                 processed_frame = frame
@@ -1013,11 +1015,19 @@ def apply_autotune_effect_3(audio, sample_rate):
         processed_audio = processed_audio / np.max(np.abs(processed_audio))
         logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
         
-        # Добавляем музыкальную реверберацию
-        logger.info("Добавляем музыкальную реверберацию...")
-        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.97)
+        # Добавляем сильную реверберацию
+        logger.info("Добавляем сильную реверберацию...")
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.99)  # Усилили предыскажение
         
-        logger.info("=== АВТОТЮН 3 (МУЗЫКАЛЬНЫЙ) УСПЕШНО ЗАВЕРШЕН ===")
+        # Добавляем дополнительное усиление эффекта
+        processed_audio = librosa.effects.pitch_shift(
+            processed_audio,
+            sr=sample_rate,
+            n_steps=2,  # Небольшой дополнительный сдвиг
+            bins_per_octave=48
+        )
+        
+        logger.info("=== АВТОТЮН 3 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
