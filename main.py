@@ -118,8 +118,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ответов на сообщения"""
     logger.info(f"Получен ответ от пользователя {update.effective_user.id}")
-    logger.debug(f"Текст сообщения: {update.message.text}")
-    logger.debug(f"Сообщение, на которое отвечают: {update.message.reply_to_message}")
     
     if not update.message.reply_to_message:
         logger.warning(f"Пользователь {update.effective_user.id} не ответил на сообщение")
@@ -139,14 +137,10 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     bot_mention = f"@{bot_username}"
-    logger.debug(f"Ожидаемое упоминание бота: {bot_mention}")
-    
     if bot_mention.lower() not in update.message.text.lower():
-        logger.warning(f"Пользователь {update.effective_user.id} не упомянул бота. Ожидалось: {bot_mention}")
+        logger.warning(f"Пользователь {update.effective_user.id} не упомянул бота")
         await update.message.reply_text(f"Пожалуйста, упомяните бота ({bot_mention}) в ответе на голосовое сообщение.")
         return
-    
-    logger.info(f"Пользователь {update.effective_user.id} правильно упомянул бота")
     
     try:
         # Сохраняем информацию о голосовом сообщении
@@ -157,7 +151,6 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'reply_message_id': update.message.message_id,
             'timestamp': time.time()
         }
-        logger.debug(f"Сохранена информация о голосовом сообщении: {voice_info}")
         
         # Сохраняем в глобальный словарь
         voice_messages[update.effective_user.id] = voice_info
@@ -169,7 +162,6 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for effect_id, effect_name in EFFECTS.items()
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        logger.debug("Создана клавиатура с эффектами")
         
         # Отправляем сообщение с кнопками
         await update.message.reply_text(
@@ -177,7 +169,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
         logger.info(f"Отправлены кнопки эффектов пользователю {update.effective_user.id}")
-    
+        
     except Exception as e:
         logger.error(f"Ошибка в handle_reply: {str(e)}")
         logger.exception("Полный стек ошибки:")
@@ -524,8 +516,13 @@ def apply_autotune_effect(audio_data, sample_rate):
         f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
         if np.any(voiced_flag):
             base_note = librosa.hz_to_note(np.nanmean(f0[voiced_flag]))
+            # Вычисляем количество полутонов для коррекции
+            target_note = 'A4'  # Целевая нота
+            n_steps = librosa.note_to_midi(target_note) - librosa.note_to_midi(base_note)
+            # Применяем коррекцию высоты тона
+            processed_audio, sample_rate = change_pitch(audio_data, sample_rate, n_steps)
         else:
-            base_note = 'A4'
+            processed_audio = audio_data
         
         # Добавляем вибрато
         vibrato = Sine(7).to_audio_segment(duration=len(audio))
@@ -584,19 +581,36 @@ def apply_rough_voice_effect(audio_data, sample_rate):
         logger.error(f"Ошибка в apply_rough_voice_effect: {str(e)}")
         return audio_data, sample_rate
 
+def change_pitch(audio_data, sample_rate, n_steps):
+    """Изменяет высоту тона аудио с использованием librosa"""
+    try:
+        # Конвертируем в формат, который понимает librosa
+        y = audio_data.astype(np.float32)
+        
+        # Изменяем высоту тона
+        y_shifted = librosa.effects.pitch_shift(
+            y,
+            sr=sample_rate,
+            n_steps=n_steps,
+            bins_per_octave=12
+        )
+        
+        return y_shifted, sample_rate
+    except Exception as e:
+        logger.error(f"Ошибка при изменении высоты тона: {str(e)}")
+        return audio_data, sample_rate
+
 def main():
     """Основная функция"""
     logger.info("Запуск бота")
     try:
         # Создаем приложение
         application = Application.builder().token(TOKEN).build()
-        logger.debug("Приложение создано")
         
         # Добавляем обработчики
         application.add_handler(CommandHandler("start", start))
-        application.add_handler(MessageHandler(filters.REPLY, handle_reply))
+        application.add_handler(MessageHandler(filters.REPLY & filters.TEXT, handle_reply))
         application.add_handler(CallbackQueryHandler(apply_effect))
-        logger.debug("Обработчики добавлены")
         
         # Запускаем бота
         logger.info("Бот запущен")
