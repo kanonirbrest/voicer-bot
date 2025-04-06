@@ -326,7 +326,7 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_sample_rate = sample_rate
                 elif effect == 'rough':
                     logger.debug("Начало применения эффекта грубого голоса")
-                    processed_audio = apply_rough_voice(wav_data, sample_rate)
+                    processed_audio = apply_rough_voice_effect(wav_data, sample_rate)
                     new_sample_rate = sample_rate
                 elif effect == 'echo':
                     logger.debug("Начало применения эффекта эха")
@@ -530,18 +530,86 @@ def apply_robot_effect(audio, sample_rate):
         logger.exception("Полный стек ошибки:")
         return audio, sample_rate
 
-def apply_rough_voice(audio, sample_rate):
-    """Применение эффекта грубого голоса"""
-    logger.debug("Применение эффекта грубого голоса")
-    # Добавляем дисторшн
-    processed_audio = np.tanh(audio * 5) * 0.5
-    
-    # Добавляем низкочастотную модуляцию
-    t = np.arange(len(audio)) / sample_rate
-    modulation = np.sin(2 * np.pi * 5 * t) * 0.3
-    processed_audio = processed_audio * (1 + modulation)
-    
-    return processed_audio
+def apply_rough_voice_effect(audio, sample_rate):
+    """Применяет эффект грубого голоса с усиленным искажением"""
+    try:
+        logger.info("=== НАЧАЛО ЭФФЕКТА ГРУБОГО ГОЛОСА ===")
+        logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
+        logger.info(f"Частота дискретизации: {sample_rate}")
+        
+        # Нормализуем аудио
+        audio = audio / np.max(np.abs(audio))
+        logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
+        
+        # Разбиваем аудио на фреймы
+        frame_length = 1024  # Уменьшаем размер фрейма для более резких переходов
+        hop_length = 256    # Уменьшаем перекрытие для более грубого звука
+        logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
+        frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
+        logger.info(f"Разбито на {frames.shape[1]} фреймов")
+        
+        # Применяем эффект к каждому фрейму
+        logger.info("Начинаем обработку фреймов...")
+        processed_frames = []
+        for i in range(frames.shape[1]):
+            frame = frames[:, i]
+            
+            # Применяем FFT
+            frame_fft = np.fft.rfft(frame)
+            freqs = np.fft.rfftfreq(len(frame), 1/sample_rate)
+            
+            # Усиливаем высокие частоты для более грубого звука
+            high_freq_boost = np.linspace(1, 3, len(frame_fft))  # Увеличиваем усиление
+            frame_fft = frame_fft * high_freq_boost
+            
+            # Добавляем гармоники для более агрессивного звука
+            harmonics = np.zeros_like(frame_fft)
+            for h in range(2, 6):  # Добавляем больше гармоник
+                if h * len(frame_fft) < len(frame_fft):
+                    harmonics[:len(frame_fft)//h] += 0.3 * frame_fft[::h]  # Усиливаем гармоники
+            
+            frame_fft = frame_fft + harmonics
+            
+            # Применяем обратное FFT
+            processed_frame = np.fft.irfft(frame_fft)
+            
+            # Добавляем искажение
+            processed_frame = np.tanh(processed_frame * 3)  # Усиливаем искажение
+            
+            # Добавляем шум
+            noise = np.random.normal(0, 0.05, len(processed_frame))  # Увеличиваем уровень шума
+            processed_frame = processed_frame + noise
+            
+            # Нормализуем фрейм
+            processed_frame = processed_frame / np.max(np.abs(processed_frame))
+            
+            processed_frames.append(processed_frame)
+        
+        # Собираем обработанные фреймы обратно в аудио
+        logger.info("Собираем обработанные фреймы...")
+        processed_audio = librosa.util.overlap_and_add(np.array(processed_frames).T, hop_length=hop_length)
+        
+        # Обрезаем до исходной длины
+        processed_audio = processed_audio[:len(audio)]
+        
+        # Добавляем финальное искажение
+        processed_audio = np.tanh(processed_audio * 2)  # Финальное искажение
+        
+        # Нормализуем
+        processed_audio = processed_audio / np.max(np.abs(processed_audio))
+        logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
+        
+        # Добавляем реверберацию с коротким временем затухания
+        logger.info("Добавляем реверберацию...")
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.95)
+        
+        logger.info("=== ЭФФЕКТ ГРУБОГО ГОЛОСА УСПЕШНО ЗАВЕРШЕН ===")
+        return processed_audio, sample_rate
+        
+    except Exception as e:
+        logger.error(f"Ошибка при применении эффекта грубого голоса: {str(e)}")
+        logger.exception("Полный стек ошибки:")
+        return audio, sample_rate
 
 def apply_echo_effect(audio, sample_rate):
     """Применение эффекта эха"""
