@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, InlineQueryHandler
 from pydub import AudioSegment
-from pydub.effects import speedup, pitch_shift, normalize, compress_dynamic_range
+from pydub.effects import speedup, normalize, compress_dynamic_range
 from pydub.generators import Sine, Square, WhiteNoise
 import numpy as np
 import soundfile as sf
@@ -514,15 +514,18 @@ def apply_autotune_effect(audio_data, sample_rate):
         # Определяем базовую ноту
         y = audio_data.astype(np.float32)
         f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+        
         if np.any(voiced_flag):
-            base_note = librosa.hz_to_note(np.nanmean(f0[voiced_flag]))
-            # Вычисляем количество полутонов для коррекции
-            target_note = 'A4'  # Целевая нота
-            n_steps = librosa.note_to_midi(target_note) - librosa.note_to_midi(base_note)
-            # Применяем коррекцию высоты тона
-            processed_audio, sample_rate = change_pitch(audio_data, sample_rate, n_steps)
-        else:
-            processed_audio = audio_data
+            # Находим среднюю частоту основного тона
+            mean_f0 = np.nanmean(f0[voiced_flag])
+            # Вычисляем целевую частоту (A4 = 440 Гц)
+            target_f0 = 440.0
+            # Вычисляем коэффициент изменения частоты
+            ratio = target_f0 / mean_f0
+            # Изменяем скорость воспроизведения для изменения высоты тона
+            audio = audio._spawn(audio.raw_data, overrides={
+                "frame_rate": int(audio.frame_rate * ratio)
+            })
         
         # Добавляем вибрато
         vibrato = Sine(7).to_audio_segment(duration=len(audio))
