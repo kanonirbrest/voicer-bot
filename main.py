@@ -530,25 +530,19 @@ def apply_robot_effect(audio, sample_rate):
         return audio, sample_rate
 
 def apply_rough_voice_effect(audio, sample_rate):
-    """Применяет эффект грубого голоса с усиленным искажением"""
+    """Применяет эффект грубого голоса с максимальным искажением"""
     try:
         logger.info("=== НАЧАЛО ЭФФЕКТА ГРУБОГО ГОЛОСА ===")
-        logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
-        logger.info(f"Частота дискретизации: {sample_rate}")
         
         # Нормализуем аудио
         audio = audio / np.max(np.abs(audio))
-        logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
         # Разбиваем аудио на фреймы
-        frame_length = 1024  # Уменьшаем размер фрейма для более резких переходов
-        hop_length = 256    # Уменьшаем перекрытие для более грубого звука
-        logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
+        frame_length = 512  # Уменьшаем размер фрейма для более резких переходов
+        hop_length = 128   # Уменьшаем перекрытие для более грубого звука
         frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
-        logger.info(f"Разбито на {frames.shape[1]} фреймов")
         
         # Применяем эффект к каждому фрейму
-        logger.info("Начинаем обработку фреймов...")
         processed_frames = []
         for i in range(frames.shape[1]):
             frame = frames[:, i]
@@ -558,25 +552,25 @@ def apply_rough_voice_effect(audio, sample_rate):
             freqs = np.fft.rfftfreq(len(frame), 1/sample_rate)
             
             # Усиливаем высокие частоты для более грубого звука
-            high_freq_boost = np.linspace(1, 3, len(frame_fft))  # Увеличиваем усиление
+            high_freq_boost = np.linspace(1, 5, len(frame_fft))  # Увеличиваем усиление
             frame_fft = frame_fft * high_freq_boost
             
             # Добавляем гармоники для более агрессивного звука
             harmonics = np.zeros_like(frame_fft)
-            for h in range(2, 6):  # Добавляем больше гармоник
+            for h in range(2, 8):  # Добавляем больше гармоник
                 if h * len(frame_fft) < len(frame_fft):
-                    harmonics[:len(frame_fft)//h] += 0.3 * frame_fft[::h]  # Усиливаем гармоники
+                    harmonics[:len(frame_fft)//h] += 0.5 * frame_fft[::h]  # Усиливаем гармоники
             
             frame_fft = frame_fft + harmonics
             
             # Применяем обратное FFT
             processed_frame = np.fft.irfft(frame_fft)
             
-            # Добавляем искажение
-            processed_frame = np.tanh(processed_frame * 3)  # Усиливаем искажение
+            # Добавляем сильное искажение
+            processed_frame = np.tanh(processed_frame * 5)  # Усиливаем искажение
             
             # Добавляем шум
-            noise = np.random.normal(0, 0.05, len(processed_frame))  # Увеличиваем уровень шума
+            noise = np.random.normal(0, 0.1, len(processed_frame))  # Увеличиваем уровень шума
             processed_frame = processed_frame + noise
             
             # Нормализуем фрейм
@@ -585,21 +579,18 @@ def apply_rough_voice_effect(audio, sample_rate):
             processed_frames.append(processed_frame)
         
         # Собираем обработанные фреймы обратно в аудио
-        logger.info("Собираем обработанные фреймы...")
         processed_audio = librosa.util.overlap_and_add(np.array(processed_frames).T, hop_length=hop_length)
         
         # Обрезаем до исходной длины
         processed_audio = processed_audio[:len(audio)]
         
         # Добавляем финальное искажение
-        processed_audio = np.tanh(processed_audio * 2)  # Финальное искажение
+        processed_audio = np.tanh(processed_audio * 3)  # Финальное искажение
         
         # Нормализуем
         processed_audio = processed_audio / np.max(np.abs(processed_audio))
-        logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
         
         # Добавляем реверберацию с коротким временем затухания
-        logger.info("Добавляем реверберацию...")
         processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.95)
         
         logger.info("=== ЭФФЕКТ ГРУБОГО ГОЛОСА УСПЕШНО ЗАВЕРШЕН ===")
@@ -905,25 +896,19 @@ def apply_autotune_effect_2(audio, sample_rate):
         return audio, sample_rate
 
 def apply_autotune_effect_3(audio, sample_rate):
-    """Третий вариант автотюна - максимально заметный музыкальный эффект"""
+    """Применяет максимально заметный музыкальный эффект автотюна"""
     try:
         logger.info("=== НАЧАЛО АВТОТЮНА 3 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) ===")
-        logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
-        logger.info(f"Частота дискретизации: {sample_rate}")
         
         # Нормализуем аудио
         audio = audio / np.max(np.abs(audio))
-        logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
         # Разбиваем аудио на фреймы
-        frame_length = 1024  # Уменьшаем размер фрейма для более резких переходов
-        hop_length = 256    # Уменьшаем перекрытие для более частой коррекции
-        logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
+        frame_length = 512  # Уменьшаем размер фрейма для более резких переходов
+        hop_length = 128   # Уменьшаем перекрытие для более частой коррекции
         frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
-        logger.info(f"Разбито на {frames.shape[1]} фреймов")
         
         # Определяем базовую ноту и тональность
-        logger.info("Определяем базовую ноту и тональность...")
         f0, voiced_flag, voiced_probs = librosa.pyin(
             audio,
             fmin=librosa.note_to_hz('C2'),
@@ -936,12 +921,10 @@ def apply_autotune_effect_3(audio, sample_rate):
         valid_f0 = f0[~np.isnan(f0)]
         if len(valid_f0) > 0:
             base_note = librosa.hz_to_midi(np.median(valid_f0))
-            logger.info(f"Найдена базовая нота: {base_note}")
             
             # Определяем тональность
             chroma = librosa.feature.chroma_cqt(y=audio, sr=sample_rate)
             key = np.argmax(np.sum(chroma, axis=1))
-            logger.info(f"Определена тональность: {librosa.midi_to_note(key)}")
             
             # Выбираем гамму в зависимости от тональности
             if key in [0, 2, 4, 5, 7, 9, 11]:  # Мажорные тональности
@@ -951,10 +934,8 @@ def apply_autotune_effect_3(audio, sample_rate):
         else:
             base_note = 60  # C4 как базовая нота по умолчанию
             scale_notes = [0, 2, 4, 5, 7, 9, 11]  # Мажорная гамма по умолчанию
-            logger.warning("Используется базовая нота по умолчанию: C4")
         
         # Применяем автотюн к каждому фрейму
-        logger.info("Начинаем обработку фреймов...")
         processed_frames = []
         for i in range(frames.shape[1]):
             frame = frames[:, i]
@@ -962,7 +943,6 @@ def apply_autotune_effect_3(audio, sample_rate):
             if voiced_flag[i]:  # Если фрейм содержит голос
                 # Определяем текущую ноту
                 current_note = librosa.hz_to_midi(f0[i])
-                logger.debug(f"Фрейм {i}: текущая нота = {current_note}")
                 
                 # Находим ближайшую ноту в гамме
                 note_in_scale = current_note - base_note
@@ -975,37 +955,37 @@ def apply_autotune_effect_3(audio, sample_rate):
                 
                 # Квантуем в ближайшую ноту гаммы
                 target_note = base_note + octave * 12 + closest_scale_note
-                logger.debug(f"Фрейм {i}: целевая нота = {target_note}")
                 
                 # Вычисляем необходимое изменение высоты тона
                 n_steps = target_note - current_note
                 
-                # Усиливаем эффект в 3 раза
-                n_steps = n_steps * 3.0
+                # Усиливаем эффект в 5 раз
+                n_steps = n_steps * 5.0
                 
                 # Добавляем сильное вибрато
-                vibrato = 1.0 * np.sin(2 * np.pi * 7 * i / frames.shape[1])  # Увеличили амплитуду и частоту
+                vibrato = 2.0 * np.sin(2 * np.pi * 10 * i / frames.shape[1])  # Увеличили амплитуду и частоту
                 n_steps = n_steps + vibrato
                 
                 # Ограничиваем максимальное изменение
-                n_steps = np.clip(n_steps, -36, 36)  # Увеличили диапазон до 3 октав
-                logger.debug(f"Фрейм {i}: изменение высоты тона = {n_steps}")
+                n_steps = np.clip(n_steps, -48, 48)  # Увеличили диапазон до 4 октав
                 
                 # Применяем изменение высоты тона
                 processed_frame = librosa.effects.pitch_shift(
                     frame,
                     sr=sample_rate,
                     n_steps=n_steps,
-                    bins_per_octave=48  # Увеличили разрешение
+                    bins_per_octave=96  # Увеличили разрешение
                 )
             else:
+                # Для фреймов без голоса добавляем шум и искажение
                 processed_frame = frame
-                logger.debug(f"Фрейм {i}: пропущен (нет голоса)")
+                noise = np.random.normal(0, 0.05, len(processed_frame))
+                processed_frame = processed_frame + noise
+                processed_frame = np.tanh(processed_frame * 2)
             
             processed_frames.append(processed_frame)
         
         # Собираем обработанные фреймы обратно в аудио
-        logger.info("Собираем обработанные фреймы...")
         processed_audio = librosa.util.overlap_and_add(np.array(processed_frames).T, hop_length=hop_length)
         
         # Обрезаем до исходной длины
@@ -1013,18 +993,16 @@ def apply_autotune_effect_3(audio, sample_rate):
         
         # Нормализуем
         processed_audio = processed_audio / np.max(np.abs(processed_audio))
-        logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
         
         # Добавляем сильную реверберацию
-        logger.info("Добавляем сильную реверберацию...")
-        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.99)  # Усилили предыскажение
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.99)
         
         # Добавляем дополнительное усиление эффекта
         processed_audio = librosa.effects.pitch_shift(
             processed_audio,
             sr=sample_rate,
-            n_steps=2,  # Небольшой дополнительный сдвиг
-            bins_per_octave=48
+            n_steps=4,  # Увеличили дополнительный сдвиг
+            bins_per_octave=96
         )
         
         logger.info("=== АВТОТЮН 3 (МАКСИМАЛЬНЫЙ ЭФФЕКТ) УСПЕШНО ЗАВЕРШЕН ===")
