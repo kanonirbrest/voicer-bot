@@ -1,5 +1,6 @@
-run = "python main.py"
+run = "pip install -r requirements.txt && python main.py"
 language = "python3"
+entrypoint = "main.py"
 packages = [
     "python-telegram-bot==20.7",
     "python-dotenv==1.0.0",
