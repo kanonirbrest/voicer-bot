@@ -525,34 +525,74 @@ def apply_reverse_effect(audio, sample_rate):
 
 def apply_autotune_effect(audio, sample_rate):
     """Применение эффекта автотюна"""
-    logger.debug("Применение эффекта автотюна")
+    logger.debug("Начало применения эффекта автотюна")
+    logger.debug(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
+    logger.debug(f"Частота дискретизации: {sample_rate}")
     
-    # Получаем высоту тона
-    pitches, magnitudes = librosa.piptrack(y=audio, sr=sample_rate)
-    
-    # Находим наиболее вероятную высоту тона для каждого кадра
-    pitch_track = []
-    for i in range(pitches.shape[1]):
-        index = magnitudes[:, i].argmax()
-        pitch_track.append(pitches[index, i])
-    
-    # Сглаживаем трек высоты тона
-    pitch_track = np.array(pitch_track)
-    pitch_track = librosa.effects.smooth_pitch(pitch_track)
-    
-    # Квантуем высоту тона в ближайшую ноту
-    notes = librosa.hz_to_midi(pitch_track)
-    quantized_notes = np.round(notes)
-    quantized_pitches = librosa.midi_to_hz(quantized_notes)
-    
-    # Применяем изменение высоты тона
-    processed_audio = librosa.effects.pitch_shift(
-        audio,
-        sr=sample_rate,
-        n_steps=librosa.hz_to_midi(quantized_pitches) - librosa.hz_to_midi(pitch_track)
-    )
-    
-    return processed_audio, sample_rate
+    try:
+        # Нормализуем аудио
+        audio = audio / np.max(np.abs(audio))
+        logger.debug(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
+        
+        # Получаем высоту тона
+        logger.debug("Получение высоты тона с помощью librosa.piptrack")
+        pitches, magnitudes = librosa.piptrack(
+            y=audio,
+            sr=sample_rate,
+            fmin=librosa.note_to_hz('C2'),
+            fmax=librosa.note_to_hz('C7')
+        )
+        logger.debug(f"Размеры pitches: {pitches.shape}, magnitudes: {magnitudes.shape}")
+        
+        # Находим наиболее вероятную высоту тона для каждого кадра
+        logger.debug("Поиск наиболее вероятной высоты тона")
+        pitch_track = []
+        for i in range(pitches.shape[1]):
+            if np.max(magnitudes[:, i]) > 0.1:  # Порог для определения наличия тона
+                index = magnitudes[:, i].argmax()
+                pitch_track.append(pitches[index, i])
+            else:
+                pitch_track.append(0)  # Нет тона
+        
+        pitch_track = np.array(pitch_track)
+        logger.debug(f"Размер pitch_track: {pitch_track.shape}")
+        logger.debug(f"Диапазон высот тона: [{np.min(pitch_track[pitch_track > 0])}, {np.max(pitch_track)}]")
+        
+        # Сглаживаем трек высоты тона
+        logger.debug("Сглаживание трека высоты тона")
+        pitch_track = librosa.effects.smooth_pitch(pitch_track)
+        
+        # Квантуем высоту тона в ближайшую ноту
+        logger.debug("Квантование высоты тона")
+        notes = librosa.hz_to_midi(pitch_track)
+        quantized_notes = np.round(notes)
+        quantized_pitches = librosa.midi_to_hz(quantized_notes)
+        
+        # Применяем изменение высоты тона
+        logger.debug("Применение изменения высоты тона")
+        n_steps = librosa.hz_to_midi(quantized_pitches) - librosa.hz_to_midi(pitch_track)
+        n_steps = np.nan_to_num(n_steps, nan=0)  # Заменяем NaN на 0
+        
+        # Ограничиваем максимальное изменение высоты тона
+        n_steps = np.clip(n_steps, -12, 12)  # Не более октавы вверх или вниз
+        
+        processed_audio = librosa.effects.pitch_shift(
+            audio,
+            sr=sample_rate,
+            n_steps=n_steps
+        )
+        
+        logger.debug("Эффект автотюна успешно применен")
+        logger.debug(f"Размер обработанного аудио: {processed_audio.shape}")
+        logger.debug(f"Диапазон значений после обработки: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
+        
+        return processed_audio, sample_rate
+        
+    except Exception as e:
+        logger.error(f"Ошибка при применении автотюна: {str(e)}")
+        logger.exception("Полный стек ошибки:")
+        # В случае ошибки возвращаем оригинальное аудио
+        return audio, sample_rate
 
 def main():
     """Основная функция"""
