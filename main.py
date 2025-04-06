@@ -434,26 +434,30 @@ def apply_robot_effect(audio_data, sample_rate):
         audio = AudioSegment(
             audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=audio_data.dtype.itemsize,
+            sample_width=2,
             channels=1
         )
         
-        # Увеличиваем скорость воспроизведения (более радикально)
-        audio = audio.speedup(playback_speed=2.0)
+        # Изменяем высоту тона для механического звука
+        audio = audio._spawn(audio.raw_data, overrides={
+            "frame_rate": int(audio.frame_rate * 1.5)
+        })
         
-        # Добавляем квадратную волну (более высокая частота)
+        # Добавляем квадратную волну
         square_wave = Square(2000).to_audio_segment(duration=len(audio))
-        audio = audio.overlay(square_wave, gain_during_overlay=20)
+        square_wave = square_wave - 10
+        audio = audio.overlay(square_wave)
         
-        # Добавляем белый шум (больше шума)
+        # Добавляем шум
         noise = WhiteNoise().to_audio_segment(duration=len(audio))
-        audio = audio.overlay(noise, gain_during_overlay=15)
+        noise = noise - 15
+        audio = audio.overlay(noise)
         
-        # Сильная компрессия динамического диапазона
-        audio = audio.compress_dynamic_range(threshold=-30.0, ratio=20.0, attack=5.0, release=50.0)
+        # Компрессия
+        audio = audio.compress_dynamic_range(threshold=-30.0, ratio=20.0)
         
         # Нормализация
-        audio = audio.normalize(headroom=0.1)
+        audio = audio.normalize()
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
@@ -470,24 +474,26 @@ def apply_musical_voice_effect(audio_data, sample_rate):
         audio = AudioSegment(
             audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=audio_data.dtype.itemsize,
+            sample_width=2,
             channels=1
         )
         
-        # Добавляем гармоники (больше гармоник)
+        # Добавляем гармоники
         for freq in [440, 880, 1320, 1760, 2200]:
             sine_wave = Sine(freq).to_audio_segment(duration=len(audio))
-            audio = audio.overlay(sine_wave, gain_during_overlay=15)
+            sine_wave = sine_wave - 10
+            audio = audio.overlay(sine_wave)
         
-        # Добавляем вибрато (более сильное)
+        # Добавляем вибрато
         vibrato = Sine(8).to_audio_segment(duration=len(audio))
-        audio = audio.overlay(vibrato, gain_during_overlay=20)
+        vibrato = vibrato - 15
+        audio = audio.overlay(vibrato)
         
-        # Сильная компрессия динамического диапазона
-        audio = audio.compress_dynamic_range(threshold=-20.0, ratio=12.0, attack=5.0, release=50.0)
+        # Компрессия
+        audio = audio.compress_dynamic_range(threshold=-20.0, ratio=12.0)
         
         # Нормализация
-        audio = audio.normalize(headroom=0.1)
+        audio = audio.normalize()
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
@@ -511,13 +517,13 @@ def apply_autotune_effect(audio_data, sample_rate):
         
         # Определяем базовую ноту
         base_note = librosa.hz_to_note(np.nanmean(f0[voiced_flag]))
-        key = base_note[0]  # Берем только букву ноты
+        key = base_note[0]
         
-        # Применяем коррекцию высоты тона (более радикальная)
+        # Применяем коррекцию высоты тона
         y_shifted = librosa.effects.pitch_shift(
             audio_data,
             sr=sample_rate,
-            n_steps=12,  # Сдвигаем на октаву
+            n_steps=12,
             bins_per_octave=24
         )
         
@@ -525,19 +531,20 @@ def apply_autotune_effect(audio_data, sample_rate):
         audio = AudioSegment(
             y_shifted.tobytes(),
             frame_rate=sample_rate,
-            sample_width=y_shifted.dtype.itemsize,
+            sample_width=2,
             channels=1
         )
         
-        # Добавляем вибрато (более сильное)
+        # Добавляем вибрато
         vibrato = Sine(10).to_audio_segment(duration=len(audio))
-        audio = audio.overlay(vibrato, gain_during_overlay=25)
+        vibrato = vibrato - 15
+        audio = audio.overlay(vibrato)
         
-        # Сильная компрессия динамического диапазона
-        audio = audio.compress_dynamic_range(threshold=-25.0, ratio=15.0, attack=5.0, release=50.0)
+        # Компрессия
+        audio = audio.compress_dynamic_range(threshold=-25.0, ratio=15.0)
         
         # Нормализация
-        audio = audio.normalize(headroom=0.1)
+        audio = audio.normalize()
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
@@ -554,28 +561,28 @@ def apply_rough_voice_effect(audio_data, sample_rate):
         audio = AudioSegment(
             audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=2,  # Явно указываем размер сэмпла в байтах
+            sample_width=2,
             channels=1
         )
         
-        # Добавляем сильное искажение
-        distorted = audio + 30  # Увеличиваем громкость для искажения
+        # Добавляем искажение
+        audio = audio + 20
         
-        # Добавляем квадратную волну (более высокая частота)
+        # Добавляем квадратную волну
         square_wave = Square(1500).to_audio_segment(duration=len(audio))
-        square_wave = square_wave - 5  # Уменьшаем громкость квадратной волны
-        audio = distorted.overlay(square_wave)
+        square_wave = square_wave - 5
+        audio = audio.overlay(square_wave)
         
-        # Добавляем белый шум (больше шума)
+        # Добавляем шум
         noise = WhiteNoise().to_audio_segment(duration=len(audio))
-        noise = noise - 10  # Уменьшаем громкость шума
+        noise = noise - 10
         audio = audio.overlay(noise)
         
-        # Сильная компрессия динамического диапазона
-        audio = audio.compress_dynamic_range(threshold=-25.0, ratio=15.0, attack=5.0, release=50.0)
+        # Компрессия
+        audio = audio.compress_dynamic_range(threshold=-25.0, ratio=15.0)
         
         # Нормализация
-        audio = audio.normalize(headroom=0.1)
+        audio = audio.normalize()
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
