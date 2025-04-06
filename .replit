@@ -1,0 +1,11 @@
+run = "python main.py"
+language = "python3"
+packages = [
+    "python-telegram-bot==20.7",
+    "python-dotenv==1.0.0",
+    "pydub==0.25.1",
+    "numpy==1.24.3",
+    "soundfile==0.12.1",
+    "librosa==0.10.1",
+    "scipy==1.11.3"
+] 
