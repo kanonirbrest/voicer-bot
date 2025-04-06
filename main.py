@@ -639,6 +639,11 @@ def apply_autotune_effect(audio, sample_rate):
 
 def apply_autotune_effect_2(audio, sample_rate):
     """Альтернативный вариант автотюна - более надежный и заметный"""
+    # Импортируем необходимые библиотеки
+    import numpy as np
+    import librosa
+    import soundfile as sf
+    
     logger.info("=== НАЧАЛО АВТОТЮНА 2 ===")
     logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
     logger.info(f"Частота дискретизации: {sample_rate}")
@@ -647,14 +652,7 @@ def apply_autotune_effect_2(audio, sample_rate):
     try:
         # Проверяем наличие необходимых библиотек
         logger.info("Проверка наличия библиотек...")
-        try:
-            import librosa
-            import numpy as np
-            import soundfile as sf
-            logger.info("Все необходимые библиотеки импортированы успешно")
-        except ImportError as e:
-            logger.error(f"Ошибка импорта библиотек: {str(e)}")
-            raise
+        logger.info("Все необходимые библиотеки импортированы успешно")
         
         # Нормализуем аудио
         audio = audio / np.max(np.abs(audio))
