@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, InlineQueryHandler
 from pydub import AudioSegment
 import numpy as np
 import soundfile as sf
@@ -30,6 +30,9 @@ EFFECTS = {
     'fast': 'Ускорение',
     'reverse': 'Обратный эффект'
 }
+
+# Глобальный словарь для хранения голосовых сообщений
+voice_messages = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
@@ -69,14 +72,17 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"User {update.effective_user.id} mentioned the bot correctly")
     
     try:
-        # Сохраняем информацию о голосовом сообщении в контекст
+        # Сохраняем информацию о голосовом сообщении
         voice_info = {
             'file_id': update.message.reply_to_message.voice.file_id,
             'message_id': update.message.reply_to_message.message_id,
-            'chat_id': update.message.chat_id
+            'chat_id': update.message.chat_id,
+            'reply_message_id': update.message.message_id  # Сохраняем ID сообщения с упоминанием бота
         }
         logger.info(f"Saving voice message info: {voice_info}")
-        context.user_data['voice_message'] = voice_info
+        
+        # Сохраняем в глобальный словарь
+        voice_messages[update.effective_user.id] = voice_info
         
         # Создаем клавиатуру с эффектами
         keyboard = [
@@ -85,7 +91,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Отправляем новое сообщение с кнопками
+        # Отправляем сообщение с кнопками
         await update.message.reply_text(
             "Выберите эффект для голосового сообщения:",
             reply_markup=reply_markup
@@ -103,18 +109,16 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     effect = query.data
-    message = query.message
-    logger.info(f"User {update.effective_user.id} selected effect: {effect}")
-    logger.info(f"Current user data: {context.user_data}")
+    user_id = update.effective_user.id
+    logger.info(f"User {user_id} selected effect: {effect}")
     
-    # Получаем информацию о голосовом сообщении из контекста
-    if 'voice_message' not in context.user_data:
-        logger.error(f"Voice message info not found for user {update.effective_user.id}")
-        logger.error(f"User data: {context.user_data}")
-        await message.edit_text("Пожалуйста, ответьте на голосовое сообщение.")
+    # Получаем информацию о голосовом сообщении из глобального словаря
+    if user_id not in voice_messages:
+        logger.error(f"Voice message info not found for user {user_id}")
+        await query.message.edit_text("Пожалуйста, ответьте на голосовое сообщение.")
         return
     
-    voice_info = context.user_data['voice_message']
+    voice_info = voice_messages[user_id]
     logger.info(f"Processing voice message with info: {voice_info}")
     
     try:
@@ -149,8 +153,8 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif effect == 'reverse':
                 processed_audio, new_sample_rate = apply_reverse_effect(wav_data, sample_rate)
             else:
-                logger.warning(f"Unknown effect {effect} selected by user {update.effective_user.id}")
-                await message.edit_text("Неизвестный эффект.")
+                logger.warning(f"Unknown effect {effect} selected by user {user_id}")
+                await query.message.edit_text("Неизвестный эффект.")
                 return
             
             logger.info(f"Applied effect {effect}, new sample rate: {new_sample_rate}")
@@ -172,13 +176,17 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.info(f"Sent processed voice message to chat {voice_info['chat_id']}")
                 
                 # Удаляем сообщение с кнопками
-                await message.delete()
+                await query.message.delete()
                 logger.info(f"Deleted buttons message")
+                
+                # Удаляем информацию о голосовом сообщении
+                del voice_messages[user_id]
+                logger.info(f"Removed voice message info for user {user_id}")
     
     except Exception as e:
-        logger.error(f"Error processing voice message for user {update.effective_user.id}: {str(e)}")
+        logger.error(f"Error processing voice message for user {user_id}: {str(e)}")
         logger.exception("Full traceback:")
-        await message.edit_text("Произошла ошибка при обработке голосового сообщения. Пожалуйста, попробуйте еще раз.")
+        await query.message.edit_text("Произошла ошибка при обработке голосового сообщения. Пожалуйста, попробуйте еще раз.")
 
 def apply_robot_effect(audio, sample_rate):
     """Применение эффекта робота"""
