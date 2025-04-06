@@ -18,6 +18,8 @@ import librosa
 import pyworld as pw
 from scipy.interpolate import interp1d
 import scipy
+import ffmpeg
+import traceback
 
 # Настройка логирования
 logging.basicConfig(
@@ -176,7 +178,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте еще раз.")
 
 async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Применение выбранного эффекта"""
+    """Применяет выбранный эффект к аудио."""
     query = update.callback_query
     await query.answer()
     
@@ -610,6 +612,47 @@ def change_pitch(audio_data, sample_rate, n_steps):
     except Exception as e:
         logger.error(f"Ошибка при изменении высоты тона: {str(e)}")
         return audio_data, sample_rate
+
+async def apply_effect(audio_data, sample_rate, effect_type):
+    """Применяет выбранный эффект к аудио."""
+    try:
+        logger.debug(f"Применение эффекта {effect_type}")
+        
+        # Создаем временный файл для аудио
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+            temp_wav_path = temp_wav.name
+            sf.write(temp_wav_path, audio_data, sample_rate)
+            logger.debug(f"Временный WAV файл создан: {temp_wav_path}")
+        
+        # Применяем эффект эхо с помощью ffmpeg
+        output_path = temp_wav_path.replace('.wav', '_echo.wav')
+        try:
+            # Эффект эхо: delay=0.5s, decay=0.5
+            stream = ffmpeg.input(temp_wav_path)
+            stream = ffmpeg.filter(stream, 'aecho', 0.8, 0.9, 1000, 0.3)
+            stream = ffmpeg.output(stream, output_path)
+            ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+            logger.debug(f"Эффект эхо применен, сохранен в: {output_path}")
+        except ffmpeg.Error as e:
+            logger.error(f"Ошибка ffmpeg: {e.stderr.decode()}")
+            raise
+        
+        # Читаем обработанный файл
+        processed_audio, new_sample_rate = sf.read(output_path)
+        logger.debug(f"Обработанный файл прочитан, частота дискретизации: {new_sample_rate}")
+        
+        # Очищаем временные файлы
+        os.unlink(temp_wav_path)
+        os.unlink(output_path)
+        logger.debug("Временные файлы удалены")
+        
+        return processed_audio, new_sample_rate
+        
+    except Exception as e:
+        logger.error(f"Ошибка при применении эффекта: {str(e)}")
+        logger.error("Полный стек ошибки при применении эффекта:")
+        logger.error(traceback.format_exc())
+        raise
 
 def main():
     """Основная функция"""
