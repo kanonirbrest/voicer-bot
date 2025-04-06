@@ -8,6 +8,14 @@ import soundfile as sf
 import io
 import tempfile
 from scipy import signal
+import logging
+
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -22,6 +30,7 @@ EFFECTS = {
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
+    logger.info(f"User {update.effective_user.id} started the bot")
     await update.message.reply_text(
         "Привет! Я бот для модификации голосовых сообщений.\n\n"
         "Как использовать:\n"
@@ -68,20 +77,28 @@ async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ответов на сообщения"""
+    logger.info(f"Received reply from user {update.effective_user.id}")
+    
     if not update.message.reply_to_message or not update.message.reply_to_message.voice:
+        logger.warning(f"User {update.effective_user.id} replied to non-voice message")
         await update.message.reply_text("Пожалуйста, ответьте на голосовое сообщение.")
         return
     
     # Проверяем, содержит ли сообщение упоминание бота
     if '@voicer_132_bot' not in update.message.text.lower():
+        logger.warning(f"User {update.effective_user.id} didn't mention the bot")
         await update.message.reply_text("Пожалуйста, упомяните бота (@voicer_132_bot) в ответе на голосовое сообщение.")
         return
+    
+    logger.info(f"User {update.effective_user.id} mentioned the bot correctly")
     
     # Сохраняем информацию о голосовом сообщении в контекст
     context.user_data['voice_message'] = {
         'file_id': update.message.reply_to_message.voice.file_id,
-        'message_id': update.message.reply_to_message.message_id
+        'message_id': update.message.reply_to_message.message_id,
+        'chat_id': update.message.chat_id
     }
+    logger.info(f"Saved voice message info for user {update.effective_user.id}")
     
     # Создаем клавиатуру с эффектами
     keyboard = [
@@ -95,6 +112,7 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Выберите эффект для голосового сообщения:",
         reply_markup=reply_markup
     )
+    logger.info(f"Sent effect buttons to user {update.effective_user.id}")
 
 async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Применение выбранного эффекта"""
@@ -103,49 +121,68 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     effect = query.data
     message = query.message
+    logger.info(f"User {update.effective_user.id} selected effect: {effect}")
     
-    # Получаем голосовое сообщение из реплая
-    if not message.reply_to_message or not message.reply_to_message.voice:
+    # Получаем информацию о голосовом сообщении из контекста
+    if 'voice_message' not in context.user_data:
+        logger.error(f"Voice message info not found for user {update.effective_user.id}")
         await message.edit_text("Пожалуйста, ответьте на голосовое сообщение.")
         return
     
-    voice = message.reply_to_message.voice
-    file = await context.bot.get_file(voice.file_id)
+    voice_info = context.user_data['voice_message']
+    logger.info(f"Processing voice message for user {update.effective_user.id} with effect {effect}")
     
-    # Скачиваем файл
-    with tempfile.NamedTemporaryFile(suffix='.ogg') as temp_file:
-        await file.download_to_drive(temp_file.name)
+    try:
+        voice = await context.bot.get_file(voice_info['file_id'])
         
-        # Конвертируем в WAV
-        audio = AudioSegment.from_ogg(temp_file.name)
-        wav_data = np.array(audio.get_array_of_samples())
-        sample_rate = audio.frame_rate
-        
-        # Применяем эффект
-        if effect == 'robot':
-            processed_audio = apply_robot_effect(wav_data, sample_rate)
-        elif effect == 'rough':
-            processed_audio = apply_rough_voice(wav_data, sample_rate)
-        elif effect == 'echo':
-            processed_audio = apply_echo_effect(wav_data, sample_rate)
-        else:
-            await message.edit_text("Неизвестный эффект.")
-            return
-        
-        # Сохраняем обработанный аудио
-        with tempfile.NamedTemporaryFile(suffix='.ogg') as output_file:
-            sf.write(output_file.name, processed_audio, sample_rate)
-            audio = AudioSegment.from_wav(output_file.name)
-            audio.export(output_file.name, format="ogg")
+        # Скачиваем файл
+        with tempfile.NamedTemporaryFile(suffix='.ogg') as temp_file:
+            await voice.download_to_drive(temp_file.name)
+            logger.info(f"Downloaded voice file for user {update.effective_user.id}")
             
-            # Отправляем обработанное сообщение
-            await message.reply_to_message.reply_voice(
-                voice=open(output_file.name, 'rb'),
-                caption=f"Эффект: {EFFECTS[effect]}"
-            )
+            # Конвертируем в WAV
+            audio = AudioSegment.from_ogg(temp_file.name)
+            wav_data = np.array(audio.get_array_of_samples())
+            sample_rate = audio.frame_rate
+            logger.info(f"Converted audio to WAV for user {update.effective_user.id}")
             
-            # Удаляем сообщение с кнопками
-            await message.delete()
+            # Применяем эффект
+            if effect == 'robot':
+                processed_audio = apply_robot_effect(wav_data, sample_rate)
+            elif effect == 'rough':
+                processed_audio = apply_rough_voice(wav_data, sample_rate)
+            elif effect == 'echo':
+                processed_audio = apply_echo_effect(wav_data, sample_rate)
+            else:
+                logger.warning(f"Unknown effect {effect} selected by user {update.effective_user.id}")
+                await message.edit_text("Неизвестный эффект.")
+                return
+            
+            logger.info(f"Applied effect {effect} for user {update.effective_user.id}")
+            
+            # Сохраняем обработанный аудио
+            with tempfile.NamedTemporaryFile(suffix='.ogg') as output_file:
+                sf.write(output_file.name, processed_audio, sample_rate)
+                audio = AudioSegment.from_wav(output_file.name)
+                audio.export(output_file.name, format="ogg")
+                logger.info(f"Saved processed audio for user {update.effective_user.id}")
+                
+                # Отправляем обработанное сообщение
+                await context.bot.send_voice(
+                    chat_id=voice_info['chat_id'],
+                    voice=open(output_file.name, 'rb'),
+                    caption=f"Эффект: {EFFECTS[effect]}",
+                    reply_to_message_id=voice_info['message_id']
+                )
+                logger.info(f"Sent processed voice message to user {update.effective_user.id}")
+                
+                # Удаляем сообщение с кнопками
+                await message.delete()
+                logger.info(f"Deleted buttons message for user {update.effective_user.id}")
+    
+    except Exception as e:
+        logger.error(f"Error processing voice message for user {update.effective_user.id}: {str(e)}")
+        await message.edit_text("Произошла ошибка при обработке голосового сообщения. Пожалуйста, попробуйте еще раз.")
 
 def apply_robot_effect(audio, sample_rate):
     """Применение эффекта робота"""
