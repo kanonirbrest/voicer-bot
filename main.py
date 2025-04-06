@@ -84,12 +84,11 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Отправляем сообщение с кнопками и удаляем исходное сообщение
+    # Отправляем сообщение с кнопками
     await update.message.reply_text(
         "Выберите эффект для голосового сообщения:",
         reply_markup=reply_markup
     )
-    await update.message.delete()
 
 async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Применение выбранного эффекта"""
