@@ -25,6 +25,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Проверка наличия ffmpeg
+def check_ffmpeg():
+    try:
+        logger.debug("Проверка наличия ffmpeg")
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            logger.info("ffmpeg найден и работает")
+            return True
+        else:
+            logger.error(f"ffmpeg не работает: {result.stderr}")
+            return False
+    except FileNotFoundError:
+        logger.error("ffmpeg не установлен")
+        return False
+
 # Проверка на единственный экземпляр
 def check_single_instance():
     try:
@@ -46,6 +61,11 @@ if not TOKEN:
     logger.error("Токен бота не найден в переменных окружения")
     sys.exit(1)
 logger.debug("Токен бота загружен")
+
+# Проверяем наличие ffmpeg
+if not check_ffmpeg():
+    logger.error("ffmpeg не установлен или не работает. Установите ffmpeg и перезапустите бота.")
+    sys.exit(1)
 
 # Проверяем, не запущен ли уже бот
 if not check_single_instance():
@@ -194,90 +214,135 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Скачиваем файл
         with tempfile.NamedTemporaryFile(suffix='.ogg') as temp_file:
-            await voice.download_to_drive(temp_file.name)
-            logger.debug(f"Файл скачан в: {temp_file.name}")
+            try:
+                await voice.download_to_drive(temp_file.name)
+                logger.debug(f"Файл скачан в: {temp_file.name}")
+                
+                # Проверяем размер файла
+                file_size = os.path.getsize(temp_file.name)
+                logger.debug(f"Размер файла: {file_size} байт")
+                if file_size == 0:
+                    raise Exception("Скачанный файл пуст")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при скачивании файла: {str(e)}")
+                await query.message.edit_text("Ошибка при скачивании голосового сообщения. Пожалуйста, попробуйте еще раз.")
+                return
             
             # Конвертируем в WAV с помощью ffmpeg
             wav_file = tempfile.NamedTemporaryFile(suffix='.wav')
             try:
                 logger.debug("Начало конвертации в WAV с помощью ffmpeg")
-                subprocess.run([
+                result = subprocess.run([
                     'ffmpeg', '-i', temp_file.name,
                     '-acodec', 'pcm_s16le',
                     '-ar', '44100',
                     '-ac', '1',
                     wav_file.name
-                ], check=True)
+                ], capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    logger.error(f"Ошибка ffmpeg при конвертации в WAV: {result.stderr}")
+                    raise Exception(f"Ошибка ffmpeg: {result.stderr}")
+                
                 logger.info("Конвертация в WAV успешно завершена")
-            except subprocess.CalledProcessError as e:
+            except Exception as e:
                 logger.error(f"Ошибка при конвертации в WAV: {str(e)}")
                 await query.message.edit_text("Ошибка при обработке аудио. Пожалуйста, попробуйте еще раз.")
                 return
             
             # Загружаем WAV файл
-            wav_data, sample_rate = sf.read(wav_file.name)
-            logger.debug(f"WAV файл загружен, частота дискретизации: {sample_rate}")
+            try:
+                wav_data, sample_rate = sf.read(wav_file.name)
+                logger.debug(f"WAV файл загружен, частота дискретизации: {sample_rate}")
+            except Exception as e:
+                logger.error(f"Ошибка при чтении WAV файла: {str(e)}")
+                await query.message.edit_text("Ошибка при обработке аудио. Пожалуйста, попробуйте еще раз.")
+                return
             
             # Применяем эффект
             logger.debug(f"Применение эффекта {effect}")
-            if effect == 'robot':
-                processed_audio = apply_robot_effect(wav_data, sample_rate)
-                new_sample_rate = sample_rate
-            elif effect == 'rough':
-                processed_audio = apply_rough_voice(wav_data, sample_rate)
-                new_sample_rate = sample_rate
-            elif effect == 'echo':
-                processed_audio = apply_echo_effect(wav_data, sample_rate)
-                new_sample_rate = sample_rate
-            elif effect == 'slow':
-                processed_audio, new_sample_rate = apply_slow_effect(wav_data, sample_rate)
-            elif effect == 'fast':
-                processed_audio, new_sample_rate = apply_fast_effect(wav_data, sample_rate)
-            elif effect == 'reverse':
-                processed_audio, new_sample_rate = apply_reverse_effect(wav_data, sample_rate)
-            else:
-                logger.warning(f"Неизвестный эффект {effect} выбран пользователем {user_id}")
-                await query.message.edit_text("Неизвестный эффект.")
+            try:
+                if effect == 'robot':
+                    processed_audio = apply_robot_effect(wav_data, sample_rate)
+                    new_sample_rate = sample_rate
+                elif effect == 'rough':
+                    processed_audio = apply_rough_voice(wav_data, sample_rate)
+                    new_sample_rate = sample_rate
+                elif effect == 'echo':
+                    processed_audio = apply_echo_effect(wav_data, sample_rate)
+                    new_sample_rate = sample_rate
+                elif effect == 'slow':
+                    processed_audio, new_sample_rate = apply_slow_effect(wav_data, sample_rate)
+                elif effect == 'fast':
+                    processed_audio, new_sample_rate = apply_fast_effect(wav_data, sample_rate)
+                elif effect == 'reverse':
+                    processed_audio, new_sample_rate = apply_reverse_effect(wav_data, sample_rate)
+                else:
+                    logger.warning(f"Неизвестный эффект {effect} выбран пользователем {user_id}")
+                    await query.message.edit_text("Неизвестный эффект.")
+                    return
+                
+                logger.info(f"Эффект {effect} применен, новая частота дискретизации: {new_sample_rate}")
+            except Exception as e:
+                logger.error(f"Ошибка при применении эффекта {effect}: {str(e)}")
+                await query.message.edit_text("Ошибка при обработке аудио. Пожалуйста, попробуйте еще раз.")
                 return
-            
-            logger.info(f"Эффект {effect} применен, новая частота дискретизации: {new_sample_rate}")
             
             # Сохраняем обработанный аудио
             with tempfile.NamedTemporaryFile(suffix='.ogg') as output_file:
-                # Сначала сохраняем как WAV
-                sf.write(output_file.name, processed_audio, new_sample_rate)
-                logger.debug("Обработанный аудио сохранен как WAV")
+                try:
+                    # Сначала сохраняем как WAV
+                    sf.write(output_file.name, processed_audio, new_sample_rate)
+                    logger.debug("Обработанный аудио сохранен как WAV")
+                except Exception as e:
+                    logger.error(f"Ошибка при сохранении WAV: {str(e)}")
+                    await query.message.edit_text("Ошибка при обработке аудио. Пожалуйста, попробуйте еще раз.")
+                    return
                 
                 # Конвертируем в OGG с помощью ffmpeg
                 ogg_file = tempfile.NamedTemporaryFile(suffix='.ogg')
                 try:
                     logger.debug("Начало конвертации в OGG с помощью ffmpeg")
-                    subprocess.run([
+                    result = subprocess.run([
                         'ffmpeg', '-i', output_file.name,
                         '-acodec', 'libopus',
                         '-ar', '48000',
                         '-ac', '1',
                         ogg_file.name
-                    ], check=True)
+                    ], capture_output=True, text=True)
+                    
+                    if result.returncode != 0:
+                        logger.error(f"Ошибка ffmpeg при конвертации в OGG: {result.stderr}")
+                        raise Exception(f"Ошибка ffmpeg: {result.stderr}")
+                    
                     logger.info("Конвертация в OGG успешно завершена")
-                except subprocess.CalledProcessError as e:
+                except Exception as e:
                     logger.error(f"Ошибка при конвертации в OGG: {str(e)}")
                     await query.message.edit_text("Ошибка при обработке аудио. Пожалуйста, попробуйте еще раз.")
                     return
                 
                 # Отправляем обработанное сообщение
-                logger.debug(f"Отправка обработанного сообщения в чат {voice_info['chat_id']}")
-                await context.bot.send_voice(
-                    chat_id=voice_info['chat_id'],
-                    voice=open(ogg_file.name, 'rb'),
-                    caption=f"Эффект: {EFFECTS[effect]}",
-                    reply_to_message_id=voice_info['message_id']
-                )
-                logger.info(f"Обработанное голосовое сообщение отправлено в чат {voice_info['chat_id']}")
+                try:
+                    logger.debug(f"Отправка обработанного сообщения в чат {voice_info['chat_id']}")
+                    await context.bot.send_voice(
+                        chat_id=voice_info['chat_id'],
+                        voice=open(ogg_file.name, 'rb'),
+                        caption=f"Эффект: {EFFECTS[effect]}",
+                        reply_to_message_id=voice_info['message_id']
+                    )
+                    logger.info(f"Обработанное голосовое сообщение отправлено в чат {voice_info['chat_id']}")
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке обработанного сообщения: {str(e)}")
+                    await query.message.edit_text("Ошибка при отправке обработанного сообщения. Пожалуйста, попробуйте еще раз.")
+                    return
                 
                 # Удаляем сообщение с кнопками
-                await query.message.delete()
-                logger.info("Сообщение с кнопками удалено")
+                try:
+                    await query.message.delete()
+                    logger.info("Сообщение с кнопками удалено")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить сообщение с кнопками: {str(e)}")
                 
                 # Удаляем информацию о голосовом сообщении
                 del voice_messages[user_id]
