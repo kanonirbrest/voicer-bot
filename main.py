@@ -12,7 +12,6 @@ import numpy as np
 import soundfile as sf
 import io
 import tempfile
-from scipy import signal
 import logging
 import subprocess
 import librosa
@@ -436,199 +435,154 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.info(f"Информация о голосовом сообщении удалена после ошибки для пользователя {user_id}")
             logger.debug(f"Текущее состояние voice_messages: {voice_messages}")
 
-def apply_robot_effect(audio, sample_rate):
-    """Применяет эффект робота с использованием pydub"""
+def apply_robot_effect(audio_data, sample_rate):
+    """Применяет эффект робота к аудио"""
     try:
-        logger.info("=== НАЧАЛО ЭФФЕКТА РОБОТА ===")
-        
         # Конвертируем numpy array в AudioSegment
-        audio_segment = AudioSegment(
-            audio.tobytes(),
+        audio = AudioSegment(
+            audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=2,
+            sample_width=audio_data.dtype.itemsize,
             channels=1
         )
         
-        # Добавляем эффект робота
-        # 1. Ускоряем аудио для более механического звука
-        audio_segment = speedup(audio_segment, playback_speed=1.2)
+        # Ускоряем аудио для механического звука
+        audio = speedup(audio, playback_speed=1.2)
         
-        # 2. Добавляем квадратную волну для металлического звука
-        square_wave = Square(440).to_audio_segment(duration=len(audio_segment))
+        # Добавляем квадратную волну для металлического звука
+        square_wave = Square(440).to_audio_segment(duration=len(audio))
         square_wave = square_wave - 20  # Уменьшаем громкость
-        audio_segment = audio_segment.overlay(square_wave)
+        audio = audio.overlay(square_wave)
         
-        # 3. Добавляем шум для механического эффекта
-        noise = WhiteNoise().to_audio_segment(duration=len(audio_segment))
+        # Добавляем шум
+        noise = WhiteNoise().to_audio_segment(duration=len(audio))
         noise = noise - 30  # Уменьшаем громкость шума
-        audio_segment = audio_segment.overlay(noise)
+        audio = audio.overlay(noise)
         
-        # 4. Компрессируем динамический диапазон
-        audio_segment = compress_dynamic_range(audio_segment, threshold=-20, ratio=4.0)
+        # Компрессия динамического диапазона
+        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
         
-        # 5. Нормализуем
-        audio_segment = normalize(audio_segment)
+        # Нормализация
+        audio = normalize(audio)
         
         # Конвертируем обратно в numpy array
-        buffer = io.BytesIO()
-        audio_segment.export(buffer, format='wav')
-        buffer.seek(0)
-        processed_audio, new_sample_rate = sf.read(buffer)
-        
-        logger.info("=== ЭФФЕКТ РОБОТА УСПЕШНО ЗАВЕРШЕН ===")
-        return processed_audio, new_sample_rate
+        processed_audio = np.array(audio.get_array_of_samples())
+        return processed_audio, sample_rate
         
     except Exception as e:
-        logger.error(f"Ошибка при применении эффекта робота: {str(e)}")
-        logger.exception("Полный стек ошибки:")
-        return audio, sample_rate
+        logger.error(f"Ошибка в apply_robot_effect: {str(e)}")
+        return audio_data, sample_rate
 
-def apply_musical_voice_effect(audio, sample_rate):
-    """Применяет музыкальный эффект голоса с использованием pydub"""
+def apply_musical_voice_effect(audio_data, sample_rate):
+    """Применяет музыкальный эффект к голосу"""
     try:
-        logger.info("=== НАЧАЛО МУЗЫКАЛЬНОГО ЭФФЕКТА ГОЛОСА ===")
-        
         # Конвертируем numpy array в AudioSegment
-        audio_segment = AudioSegment(
-            audio.tobytes(),
+        audio = AudioSegment(
+            audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=2,
+            sample_width=audio_data.dtype.itemsize,
             channels=1
         )
         
-        # 1. Добавляем гармоники
-        harmonics = []
-        for freq in [440, 880, 1320]:  # Основной тон и две гармоники
-            sine_wave = Sine(freq).to_audio_segment(duration=len(audio_segment))
-            sine_wave = sine_wave - 15  # Уменьшаем громкость
-            harmonics.append(sine_wave)
+        # Добавляем гармоники
+        base_tone = Sine(440).to_audio_segment(duration=len(audio))
+        base_tone = base_tone - 10
+        audio = audio.overlay(base_tone)
         
-        for harmonic in harmonics:
-            audio_segment = audio_segment.overlay(harmonic)
+        # Добавляем вибрато
+        vibrato = Sine(5).to_audio_segment(duration=len(audio))
+        vibrato = vibrato - 20
+        audio = audio.overlay(vibrato)
         
-        # 2. Добавляем легкое вибрато
-        vibrato = Sine(5).to_audio_segment(duration=len(audio_segment))
-        vibrato = vibrato - 25  # Уменьшаем громкость
-        audio_segment = audio_segment.overlay(vibrato)
+        # Компрессия динамического диапазона
+        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
         
-        # 3. Компрессируем динамический диапазон
-        audio_segment = compress_dynamic_range(audio_segment, threshold=-25, ratio=3.0)
-        
-        # 4. Нормализуем
-        audio_segment = normalize(audio_segment)
+        # Нормализация
+        audio = normalize(audio)
         
         # Конвертируем обратно в numpy array
-        buffer = io.BytesIO()
-        audio_segment.export(buffer, format='wav')
-        buffer.seek(0)
-        processed_audio, new_sample_rate = sf.read(buffer)
-        
-        logger.info("=== МУЗЫКАЛЬНЫЙ ЭФФЕКТ ГОЛОСА УСПЕШНО ЗАВЕРШЕН ===")
-        return processed_audio, new_sample_rate
+        processed_audio = np.array(audio.get_array_of_samples())
+        return processed_audio, sample_rate
         
     except Exception as e:
-        logger.error(f"Ошибка при применении музыкального эффекта голоса: {str(e)}")
-        logger.exception("Полный стек ошибки:")
-        return audio, sample_rate
+        logger.error(f"Ошибка в apply_musical_voice_effect: {str(e)}")
+        return audio_data, sample_rate
 
-def apply_autotune_effect(audio, sample_rate):
-    """Применяет эффект автотюна с использованием pydub"""
+def apply_autotune_effect(audio_data, sample_rate):
+    """Применяет эффект автотюна к голосу"""
     try:
-        logger.info("=== НАЧАЛО АВТОТЮНА ===")
-        
         # Конвертируем numpy array в AudioSegment
-        audio_segment = AudioSegment(
-            audio.tobytes(),
+        audio = AudioSegment(
+            audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=2,
+            sample_width=audio_data.dtype.itemsize,
             channels=1
         )
         
-        # 1. Определяем базовую ноту
-        f0, voiced_flag, voiced_probs = librosa.pyin(
-            audio,
-            fmin=librosa.note_to_hz('C2'),
-            fmax=librosa.note_to_hz('C7')
-        )
-        
-        if len(f0[~np.isnan(f0)]) > 0:
-            base_note = librosa.hz_to_midi(np.median(f0[~np.isnan(f0)]))
+        # Определяем базовую ноту
+        y = audio_data.astype(np.float32)
+        f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+        if np.any(voiced_flag):
+            base_note = librosa.hz_to_note(np.nanmean(f0[voiced_flag]))
         else:
-            base_note = 60  # C4 по умолчанию
+            base_note = 'A4'
         
-        # 2. Применяем коррекцию высоты тона
-        audio_segment = pitch_shift(audio_segment, n_steps=base_note-60)
+        # Добавляем вибрато
+        vibrato = Sine(7).to_audio_segment(duration=len(audio))
+        vibrato = vibrato - 15
+        audio = audio.overlay(vibrato)
         
-        # 3. Добавляем сильное вибрато
-        vibrato = Sine(7).to_audio_segment(duration=len(audio_segment))
-        vibrato = vibrato - 20  # Уменьшаем громкость
-        audio_segment = audio_segment.overlay(vibrato)
+        # Компрессия динамического диапазона
+        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
         
-        # 4. Компрессируем динамический диапазон
-        audio_segment = compress_dynamic_range(audio_segment, threshold=-20, ratio=4.0)
-        
-        # 5. Нормализуем
-        audio_segment = normalize(audio_segment)
+        # Нормализация
+        audio = normalize(audio)
         
         # Конвертируем обратно в numpy array
-        buffer = io.BytesIO()
-        audio_segment.export(buffer, format='wav')
-        buffer.seek(0)
-        processed_audio, new_sample_rate = sf.read(buffer)
-        
-        logger.info("=== АВТОТЮН УСПЕШНО ЗАВЕРШЕН ===")
-        return processed_audio, new_sample_rate
+        processed_audio = np.array(audio.get_array_of_samples())
+        return processed_audio, sample_rate
         
     except Exception as e:
-        logger.error(f"Ошибка при применении автотюна: {str(e)}")
-        logger.exception("Полный стек ошибки:")
-        return audio, sample_rate
+        logger.error(f"Ошибка в apply_autotune_effect: {str(e)}")
+        return audio_data, sample_rate
 
-def apply_rough_voice_effect(audio, sample_rate):
-    """Применяет эффект грубого голоса с использованием pydub"""
+def apply_rough_voice_effect(audio_data, sample_rate):
+    """Применяет эффект грубого голоса"""
     try:
-        logger.info("=== НАЧАЛО ЭФФЕКТА ГРУБОГО ГОЛОСА ===")
-        
         # Конвертируем numpy array в AudioSegment
-        audio_segment = AudioSegment(
-            audio.tobytes(),
+        audio = AudioSegment(
+            audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=2,
+            sample_width=audio_data.dtype.itemsize,
             channels=1
         )
         
-        # 1. Добавляем искажение
-        audio_segment = audio_segment + 10  # Усиливаем сигнал
+        # Добавляем искажение
+        audio = audio + 10  # Усиливаем сигнал для искажения
         
-        # 2. Добавляем шум
-        noise = WhiteNoise().to_audio_segment(duration=len(audio_segment))
-        noise = noise - 25  # Уменьшаем громкость шума
-        audio_segment = audio_segment.overlay(noise)
+        # Добавляем шум
+        noise = WhiteNoise().to_audio_segment(duration=len(audio))
+        noise = noise - 20
+        audio = audio.overlay(noise)
         
-        # 3. Добавляем квадратную волну для грубости
-        square_wave = Square(220).to_audio_segment(duration=len(audio_segment))
-        square_wave = square_wave - 15  # Уменьшаем громкость
-        audio_segment = audio_segment.overlay(square_wave)
+        # Добавляем квадратную волну
+        square_wave = Square(220).to_audio_segment(duration=len(audio))
+        square_wave = square_wave - 25
+        audio = audio.overlay(square_wave)
         
-        # 4. Компрессируем динамический диапазон
-        audio_segment = compress_dynamic_range(audio_segment, threshold=-15, ratio=5.0)
+        # Компрессия динамического диапазона
+        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
         
-        # 5. Нормализуем
-        audio_segment = normalize(audio_segment)
+        # Нормализация
+        audio = normalize(audio)
         
         # Конвертируем обратно в numpy array
-        buffer = io.BytesIO()
-        audio_segment.export(buffer, format='wav')
-        buffer.seek(0)
-        processed_audio, new_sample_rate = sf.read(buffer)
-        
-        logger.info("=== ЭФФЕКТ ГРУБОГО ГОЛОСА УСПЕШНО ЗАВЕРШЕН ===")
-        return processed_audio, new_sample_rate
+        processed_audio = np.array(audio.get_array_of_samples())
+        return processed_audio, sample_rate
         
     except Exception as e:
-        logger.error(f"Ошибка при применении эффекта грубого голоса: {str(e)}")
-        logger.exception("Полный стек ошибки:")
-        return audio, sample_rate
+        logger.error(f"Ошибка в apply_rough_voice_effect: {str(e)}")
+        return audio_data, sample_rate
 
 def main():
     """Основная функция"""
