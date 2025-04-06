@@ -273,7 +273,7 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.debug(f"Целевой файл: {wav_file.name}")
                 
                 result = subprocess.run([
-                    'ffmpeg', '-i', temp_file.name,
+                    'ffmpeg', '-y', '-i', temp_file.name,
                     '-acodec', 'pcm_s16le',
                     '-ar', '44100',
                     '-ac', '1',
@@ -376,7 +376,7 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.debug(f"Целевой файл: {ogg_file.name}")
                     
                     result = subprocess.run([
-                        'ffmpeg', '-i', output_file.name,
+                        'ffmpeg', '-y', '-i', output_file.name,
                         '-acodec', 'libopus',
                         '-ar', '48000',
                         '-ac', '1',
