@@ -77,6 +77,12 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пожалуйста, упомяните бота (@voicer_132_bot) в ответе на голосовое сообщение.")
         return
     
+    # Сохраняем информацию о голосовом сообщении в контекст
+    context.user_data['voice_message'] = {
+        'file_id': update.message.reply_to_message.voice.file_id,
+        'message_id': update.message.reply_to_message.message_id
+    }
+    
     # Создаем клавиатуру с эффектами
     keyboard = [
         [InlineKeyboardButton(effect_name, callback_data=effect_id)]
@@ -84,8 +90,8 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Отправляем сообщение с кнопками
-    await update.message.reply_text(
+    # Редактируем текущее сообщение, добавляя кнопки
+    await update.message.edit_text(
         "Выберите эффект для голосового сообщения:",
         reply_markup=reply_markup
     )
