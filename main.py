@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResultArticle, InputTextMessageContent
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes, InlineQueryHandler
 from pydub import AudioSegment
 import numpy as np
 import soundfile as sf
@@ -27,13 +27,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Как использовать:\n"
         "1. Ответьте на голосовое сообщение\n"
         "2. Выберите эффект\n"
-        "3. Получите обработанное сообщение"
+        "3. Получите обработанное сообщение\n\n"
+        "Или используйте меня в инлайн-режиме: @voicer_132_bot"
     )
+
+async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик инлайн-запросов"""
+    query = update.inline_query.query.lower()
+    results = []
+    
+    # Если запрос пустой, показываем все эффекты
+    if not query:
+        for effect_id, effect_name in EFFECTS.items():
+            results.append(
+                InlineQueryResultArticle(
+                    id=effect_id,
+                    title=effect_name,
+                    description=f'Применить эффект {effect_name}',
+                    input_message_content=InputTextMessageContent(
+                        message_text=f"Выбран эффект: {effect_name}\n\nОтправьте голосовое сообщение для обработки."
+                    )
+                )
+            )
+    else:
+        # Ищем эффекты по запросу
+        for effect_id, effect_name in EFFECTS.items():
+            if query in effect_name.lower() or query in effect_id:
+                results.append(
+                    InlineQueryResultArticle(
+                        id=effect_id,
+                        title=effect_name,
+                        description=f'Применить эффект {effect_name}',
+                        input_message_content=InputTextMessageContent(
+                            message_text=f"Выбран эффект: {effect_name}\n\nОтправьте голосовое сообщение для обработки."
+                        )
+                    )
+                )
+    
+    await update.inline_query.answer(results)
 
 async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ответов на сообщения"""
     if not update.message.reply_to_message or not update.message.reply_to_message.voice:
         await update.message.reply_text("Пожалуйста, ответьте на голосовое сообщение.")
+        return
+    
+    # Проверяем, содержит ли сообщение упоминание бота
+    if '@voicer_132_bot' not in update.message.text.lower():
+        await update.message.reply_text("Пожалуйста, упомяните бота (@voicer_132_bot) в ответе на голосовое сообщение.")
         return
     
     # Создаем клавиатуру с эффектами
@@ -43,10 +84,12 @@ async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Отправляем сообщение с кнопками и удаляем исходное сообщение
     await update.message.reply_text(
         "Выберите эффект для голосового сообщения:",
         reply_markup=reply_markup
     )
+    await update.message.delete()
 
 async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Применение выбранного эффекта"""
@@ -158,6 +201,7 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.REPLY, handle_reply))
     application.add_handler(CallbackQueryHandler(apply_effect))
+    application.add_handler(InlineQueryHandler(inline_query))
     
     # Запускаем бота
     print("Бот запущен")
