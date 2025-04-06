@@ -13,6 +13,8 @@ import tempfile
 from scipy import signal
 import logging
 import subprocess
+import librosa
+import librosa.display
 
 # Настройка логирования
 logging.basicConfig(
@@ -86,7 +88,8 @@ EFFECTS = {
     'echo': 'Эффект эха',
     'slow': 'Замедление',
     'fast': 'Ускорение',
-    'reverse': 'Обратный эффект'
+    'reverse': 'Обратный эффект',
+    'autotune': 'Автотюн'
 }
 logger.debug(f"Загружены эффекты: {EFFECTS}")
 
@@ -334,6 +337,9 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif effect == 'reverse':
                     logger.debug("Начало применения обратного эффекта")
                     processed_audio, new_sample_rate = apply_reverse_effect(wav_data, sample_rate)
+                elif effect == 'autotune':
+                    logger.debug("Начало применения эффекта автотюна")
+                    processed_audio, new_sample_rate = apply_autotune_effect(wav_data, sample_rate)
                 else:
                     logger.warning(f"Неизвестный эффект {effect} выбран пользователем {user_id}")
                     await query.message.edit_text("Неизвестный эффект.")
@@ -517,6 +523,37 @@ def apply_reverse_effect(audio, sample_rate):
     logger.debug("Применение обратного эффекта")
     # Просто переворачиваем массив
     return np.flip(audio), sample_rate
+
+def apply_autotune_effect(audio, sample_rate):
+    """Применение эффекта автотюна"""
+    logger.debug("Применение эффекта автотюна")
+    
+    # Получаем высоту тона
+    pitches, magnitudes = librosa.piptrack(y=audio, sr=sample_rate)
+    
+    # Находим наиболее вероятную высоту тона для каждого кадра
+    pitch_track = []
+    for i in range(pitches.shape[1]):
+        index = magnitudes[:, i].argmax()
+        pitch_track.append(pitches[index, i])
+    
+    # Сглаживаем трек высоты тона
+    pitch_track = np.array(pitch_track)
+    pitch_track = librosa.effects.smooth_pitch(pitch_track)
+    
+    # Квантуем высоту тона в ближайшую ноту
+    notes = librosa.hz_to_midi(pitch_track)
+    quantized_notes = np.round(notes)
+    quantized_pitches = librosa.midi_to_hz(quantized_notes)
+    
+    # Применяем изменение высоты тона
+    processed_audio = librosa.effects.pitch_shift(
+        audio,
+        sr=sample_rate,
+        n_steps=librosa.hz_to_midi(quantized_pitches) - librosa.hz_to_midi(pitch_track)
+    )
+    
+    return processed_audio, sample_rate
 
 def main():
     """Основная функция"""
