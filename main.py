@@ -90,7 +90,8 @@ EFFECTS = {
     'slow': 'Замедление',
     'fast': 'Ускорение',
     'reverse': 'Обратный эффект',
-    'autotune': 'Автотюн'
+    'autotune': 'Автотюн',
+    'autotune2': 'Автотюн 2'  # Добавляем новый эффект
 }
 logger.debug(f"Загружены эффекты: {EFFECTS}")
 
@@ -341,6 +342,9 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif effect == 'autotune':
                     logger.debug("Начало применения эффекта автотюна")
                     processed_audio, new_sample_rate = apply_autotune_effect(wav_data, sample_rate)
+                elif effect == 'autotune2':
+                    logger.debug("Начало применения эффекта автотюна 2")
+                    processed_audio, new_sample_rate = apply_autotune_effect_2(wav_data, sample_rate)
                 else:
                     logger.warning(f"Неизвестный эффект {effect} выбран пользователем {user_id}")
                     await query.message.edit_text("Неизвестный эффект.")
@@ -527,9 +531,10 @@ def apply_reverse_effect(audio, sample_rate):
 
 def apply_autotune_effect(audio, sample_rate):
     """Применение эффекта автотюна с помощью pyworld"""
-    logger.debug("Начало применения эффекта автотюна с pyworld")
+    logger.debug("=== НАЧАЛО АВТОТЮНА ===")
     logger.debug(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
     logger.debug(f"Частота дискретизации: {sample_rate}")
+    logger.debug(f"Диапазон входного аудио: [{np.min(audio)}, {np.max(audio)}]")
     
     try:
         # Нормализуем аудио
@@ -537,26 +542,34 @@ def apply_autotune_effect(audio, sample_rate):
         logger.debug(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
         # Извлекаем основные параметры голоса
+        logger.debug("Извлечение параметров голоса...")
         _f0, t = pw.dio(audio.astype(np.float64), sample_rate)  # Основная частота
+        logger.debug(f"Первичная f0: мин={np.min(_f0[_f0 > 0])}, макс={np.max(_f0)}")
+        
         f0 = pw.stonemask(audio.astype(np.float64), _f0, t, sample_rate)  # Уточнение частоты
+        logger.debug(f"Уточненная f0: мин={np.min(f0[f0 > 0])}, макс={np.max(f0)}")
+        
         sp = pw.cheaptrick(audio.astype(np.float64), f0, t, sample_rate)  # Спектральная оболочка
         ap = pw.d4c(audio.astype(np.float64), f0, t, sample_rate)  # Апериодичность
         
-        logger.debug(f"Размер f0: {f0.shape}, sp: {sp.shape}, ap: {ap.shape}")
+        logger.debug(f"Размеры: f0={f0.shape}, sp={sp.shape}, ap={ap.shape}")
         
         # Определяем базовую ноту (тональность)
         valid_f0 = f0[f0 > 0]
         if len(valid_f0) > 0:
             base_note = librosa.hz_to_midi(np.median(valid_f0))
+            logger.debug(f"Найдена базовая нота: {base_note}")
             # Округляем до ближайшей ноты в мажорной гамме
             scale_notes = [0, 2, 4, 5, 7, 9, 11]  # Мажорная гамма
             base_note = np.round(base_note)
             base_note = base_note - (base_note % 12)  # Округляем до октавы
+            logger.debug(f"Округленная базовая нота: {base_note}")
         else:
             base_note = 60  # C4 как базовая нота по умолчанию
+            logger.debug("Используется базовая нота по умолчанию: C4")
         
         # Квантуем высоту тона в ноты мажорной гаммы
-        logger.debug("Квантование высоты тона в мажорную гамму")
+        logger.debug("Квантование высоты тона в мажорную гамму...")
         notes = librosa.hz_to_midi(f0)
         quantized_notes = np.zeros_like(notes)
         
@@ -573,47 +586,184 @@ def apply_autotune_effect(audio, sample_rate):
                 
                 # Квантуем в ближайшую ноту гаммы
                 quantized_notes[i] = base_note + octave * 12 + closest_scale_note
+                logger.debug(f"Исходная нота: {notes[i]}, квантованная: {quantized_notes[i]}")
             else:
                 quantized_notes[i] = 0
         
         # Преобразуем квантованные ноты обратно в частоты
         quantized_f0 = librosa.midi_to_hz(quantized_notes)
+        logger.debug(f"Квантованные частоты: мин={np.min(quantized_f0[quantized_f0 > 0])}, макс={np.max(quantized_f0)}")
         
         # Усиливаем эффект автотюна
+        logger.debug("Усиление эффекта автотюна...")
         # 1. Увеличиваем силу коррекции
         n_steps = librosa.hz_to_midi(quantized_f0) - librosa.hz_to_midi(f0)
         n_steps = np.nan_to_num(n_steps, nan=0)
-        n_steps = n_steps * 1.5  # Усиливаем на 50%
+        n_steps = n_steps * 2.0  # Усиливаем на 100%
+        logger.debug(f"Коррекция высоты тона: мин={np.min(n_steps)}, макс={np.max(n_steps)}")
         
-        # 2. Добавляем вибрато
+        # 2. Добавляем сильное вибрато
         t = np.arange(len(f0))
-        vibrato = 0.2 * np.sin(2 * np.pi * 5 * t / len(f0))  # 5 Гц вибрато
+        vibrato = 0.5 * np.sin(2 * np.pi * 5 * t / len(f0))  # Усиленное вибрато
         n_steps = n_steps + vibrato
+        logger.debug(f"Добавлено вибрато: амплитуда=0.5, частота=5 Гц")
         
         # 3. Ограничиваем максимальное изменение
-        n_steps = np.clip(n_steps, -24, 24)  # Две октавы вверх или вниз
+        n_steps = np.clip(n_steps, -36, 36)  # Три октавы вверх или вниз
+        logger.debug(f"Ограниченная коррекция: мин={np.min(n_steps)}, макс={np.max(n_steps)}")
         
         # Применяем изменение высоты тона
-        logger.debug("Применение изменения высоты тона")
+        logger.debug("Применение изменения высоты тона...")
         new_f0 = librosa.midi_to_hz(librosa.hz_to_midi(f0) + n_steps)
+        logger.debug(f"Новые частоты: мин={np.min(new_f0[new_f0 > 0])}, макс={np.max(new_f0)}")
         
         # Синтезируем новый звук
+        logger.debug("Синтез нового звука...")
         processed_audio = pw.synthesize(new_f0, sp, ap, sample_rate)
         
         # Нормализуем выходной сигнал
         processed_audio = processed_audio / np.max(np.abs(processed_audio))
+        logger.debug(f"Нормализованный выход: мин={np.min(processed_audio)}, макс={np.max(processed_audio)}")
         
-        # Добавляем легкую реверберацию
-        processed_audio = librosa.effects.preemphasis(processed_audio)
+        # Добавляем сильную реверберацию
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.97)
+        logger.debug("Добавлена реверберация")
         
-        logger.debug("Эффект автотюна успешно применен")
-        logger.debug(f"Размер обработанного аудио: {processed_audio.shape}")
-        logger.debug(f"Диапазон значений после обработки: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
-        
+        logger.debug("=== АВТОТЮН УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
         logger.error(f"Ошибка при применении автотюна: {str(e)}")
+        logger.exception("Полный стек ошибки:")
+        return audio, sample_rate
+
+def apply_autotune_effect_2(audio, sample_rate):
+    """Альтернативный вариант автотюна - более надежный и заметный"""
+    logger.info("=== НАЧАЛО АВТОТЮНА 2 ===")
+    logger.info(f"Размер входного аудио: {audio.shape}, тип: {audio.dtype}")
+    logger.info(f"Частота дискретизации: {sample_rate}")
+    logger.info(f"Диапазон входного аудио: [{np.min(audio)}, {np.max(audio)}]")
+    
+    try:
+        # Проверяем наличие необходимых библиотек
+        logger.info("Проверка наличия библиотек...")
+        try:
+            import librosa
+            import numpy as np
+            import soundfile as sf
+            logger.info("Все необходимые библиотеки импортированы успешно")
+        except ImportError as e:
+            logger.error(f"Ошибка импорта библиотек: {str(e)}")
+            raise
+        
+        # Нормализуем аудио
+        audio = audio / np.max(np.abs(audio))
+        logger.info(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
+        
+        # Разбиваем аудио на фреймы
+        frame_length = 2048
+        hop_length = 512
+        logger.info(f"Разбиваем аудио на фреймы: frame_length={frame_length}, hop_length={hop_length}")
+        frames = librosa.util.frame(audio, frame_length=frame_length, hop_length=hop_length)
+        logger.info(f"Разбито на {frames.shape[1]} фреймов")
+        
+        # Определяем базовую ноту
+        logger.info("Определяем базовую ноту с помощью librosa.pyin...")
+        f0, voiced_flag, voiced_probs = librosa.pyin(
+            audio,
+            fmin=librosa.note_to_hz('C2'),
+            fmax=librosa.note_to_hz('C7'),
+            frame_length=frame_length,
+            hop_length=hop_length
+        )
+        logger.info(f"Определена базовая частота: {np.median(f0[~np.isnan(f0)])} Гц")
+        logger.info(f"Количество фреймов с голосом: {np.sum(voiced_flag)} из {len(voiced_flag)}")
+        
+        # Определяем тональность
+        valid_f0 = f0[~np.isnan(f0)]
+        if len(valid_f0) > 0:
+            base_note = librosa.hz_to_midi(np.median(valid_f0))
+            logger.info(f"Найдена базовая нота: {base_note}")
+            # Округляем до ближайшей ноты в мажорной гамме
+            scale_notes = [0, 2, 4, 5, 7, 9, 11]  # Мажорная гамма
+            base_note = np.round(base_note)
+            base_note = base_note - (base_note % 12)  # Округляем до октавы
+            logger.info(f"Округленная базовая нота: {base_note}")
+        else:
+            base_note = 60  # C4 как базовая нота по умолчанию
+            logger.warning("Используется базовая нота по умолчанию: C4")
+        
+        # Применяем автотюн к каждому фрейму
+        logger.info("Начинаем обработку фреймов...")
+        processed_frames = []
+        for i in range(frames.shape[1]):
+            frame = frames[:, i]
+            
+            if voiced_flag[i]:  # Если фрейм содержит голос
+                # Определяем текущую ноту
+                current_note = librosa.hz_to_midi(f0[i])
+                logger.debug(f"Фрейм {i}: текущая нота = {current_note}")
+                
+                # Находим ближайшую ноту в гамме
+                note_in_scale = current_note - base_note
+                octave = np.floor(note_in_scale / 12)
+                note_in_octave = note_in_scale % 12
+                
+                # Находим ближайшую ноту в гамме
+                distances = [abs(note_in_octave - scale_note) for scale_note in scale_notes]
+                closest_scale_note = scale_notes[np.argmin(distances)]
+                
+                # Квантуем в ближайшую ноту гаммы
+                target_note = base_note + octave * 12 + closest_scale_note
+                logger.debug(f"Фрейм {i}: целевая нота = {target_note}")
+                
+                # Вычисляем необходимое изменение высоты тона
+                n_steps = target_note - current_note
+                
+                # Усиливаем эффект
+                n_steps = n_steps * 2.0  # Усиливаем на 100%
+                
+                # Добавляем вибрато
+                vibrato = 0.5 * np.sin(2 * np.pi * 5 * i / frames.shape[1])
+                n_steps = n_steps + vibrato
+                
+                # Ограничиваем максимальное изменение
+                n_steps = np.clip(n_steps, -24, 24)
+                logger.debug(f"Фрейм {i}: изменение высоты тона = {n_steps}")
+                
+                # Применяем изменение высоты тона
+                processed_frame = librosa.effects.pitch_shift(
+                    frame,
+                    sr=sample_rate,
+                    n_steps=n_steps,
+                    bins_per_octave=24
+                )
+            else:
+                processed_frame = frame
+                logger.debug(f"Фрейм {i}: пропущен (нет голоса)")
+            
+            processed_frames.append(processed_frame)
+        
+        # Собираем обработанные фреймы обратно в аудио
+        logger.info("Собираем обработанные фреймы...")
+        processed_audio = librosa.util.overlap_and_add(np.array(processed_frames).T, hop_length=hop_length)
+        
+        # Обрезаем до исходной длины
+        processed_audio = processed_audio[:len(audio)]
+        
+        # Нормализуем
+        processed_audio = processed_audio / np.max(np.abs(processed_audio))
+        logger.info(f"Нормализованный выход: [{np.min(processed_audio)}, {np.max(processed_audio)}]")
+        
+        # Добавляем реверберацию
+        logger.info("Добавляем реверберацию...")
+        processed_audio = librosa.effects.preemphasis(processed_audio, coef=0.97)
+        
+        logger.info("=== АВТОТЮН 2 УСПЕШНО ЗАВЕРШЕН ===")
+        return processed_audio, sample_rate
+        
+    except Exception as e:
+        logger.error(f"Ошибка при применении автотюна 2: {str(e)}")
         logger.exception("Полный стек ошибки:")
         return audio, sample_rate
 
