@@ -430,6 +430,9 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def apply_robot_effect(audio_data, sample_rate):
     """Применяет эффект робота к аудио"""
     try:
+        logger.info("=== НАЧАЛО ЭФФЕКТА РОБОТА ===")
+        logger.debug(f"Размер входных данных: {audio_data.shape}, частота: {sample_rate}")
+        
         # Конвертируем numpy array в AudioSegment
         audio = AudioSegment(
             audio_data.tobytes(),
@@ -437,37 +440,49 @@ def apply_robot_effect(audio_data, sample_rate):
             sample_width=audio_data.dtype.itemsize,
             channels=1
         )
+        logger.debug("Аудио конвертировано в AudioSegment")
         
         # Ускоряем аудио для механического звука
-        audio = speedup(audio, playback_speed=1.2)
+        audio = speedup(audio, playback_speed=1.5)  # Увеличена скорость
+        logger.debug("Аудио ускорено")
         
         # Добавляем квадратную волну для металлического звука
-        square_wave = Square(440).to_audio_segment(duration=len(audio))
-        square_wave = square_wave - 20  # Уменьшаем громкость
+        square_wave = Square(880).to_audio_segment(duration=len(audio))  # Увеличена частота
+        square_wave = square_wave - 10  # Увеличена громкость
         audio = audio.overlay(square_wave)
+        logger.debug("Добавлена квадратная волна")
         
         # Добавляем шум
         noise = WhiteNoise().to_audio_segment(duration=len(audio))
-        noise = noise - 30  # Уменьшаем громкость шума
+        noise = noise - 20  # Увеличена громкость шума
         audio = audio.overlay(noise)
+        logger.debug("Добавлен шум")
         
         # Компрессия динамического диапазона
-        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
+        audio = compress_dynamic_range(audio, threshold=-10.0, ratio=8.0)  # Усилена компрессия
+        logger.debug("Применена компрессия")
         
         # Нормализация
         audio = normalize(audio)
+        logger.debug("Аудио нормализовано")
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
+        logger.debug(f"Размер выходных данных: {processed_audio.shape}")
+        logger.info("=== ЭФФЕКТ РОБОТА УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
         logger.error(f"Ошибка в apply_robot_effect: {str(e)}")
+        logger.exception("Полный стек ошибки:")
         return audio_data, sample_rate
 
 def apply_musical_voice_effect(audio_data, sample_rate):
     """Применяет музыкальный эффект к голосу"""
     try:
+        logger.info("=== НАЧАЛО МУЗЫКАЛЬНОГО ЭФФЕКТА ===")
+        logger.debug(f"Размер входных данных: {audio_data.shape}, частота: {sample_rate}")
+        
         # Конвертируем numpy array в AudioSegment
         audio = AudioSegment(
             audio_data.tobytes(),
@@ -475,34 +490,50 @@ def apply_musical_voice_effect(audio_data, sample_rate):
             sample_width=audio_data.dtype.itemsize,
             channels=1
         )
+        logger.debug("Аудио конвертировано в AudioSegment")
         
         # Добавляем гармоники
-        base_tone = Sine(440).to_audio_segment(duration=len(audio))
-        base_tone = base_tone - 10
-        audio = audio.overlay(base_tone)
+        harmonics = []
+        for freq in [440, 880, 1320, 1760]:  # Добавлены дополнительные гармоники
+            sine_wave = Sine(freq).to_audio_segment(duration=len(audio))
+            sine_wave = sine_wave - 5  # Увеличена громкость
+            harmonics.append(sine_wave)
+        
+        for harmonic in harmonics:
+            audio = audio.overlay(harmonic)
+        logger.debug("Добавлены гармоники")
         
         # Добавляем вибрато
-        vibrato = Sine(5).to_audio_segment(duration=len(audio))
-        vibrato = vibrato - 20
+        vibrato = Sine(8).to_audio_segment(duration=len(audio))  # Увеличена частота
+        vibrato = vibrato - 10  # Увеличена громкость
         audio = audio.overlay(vibrato)
+        logger.debug("Добавлено вибрато")
         
         # Компрессия динамического диапазона
-        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
+        audio = compress_dynamic_range(audio, threshold=-10.0, ratio=8.0)  # Усилена компрессия
+        logger.debug("Применена компрессия")
         
         # Нормализация
         audio = normalize(audio)
+        logger.debug("Аудио нормализовано")
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
+        logger.debug(f"Размер выходных данных: {processed_audio.shape}")
+        logger.info("=== МУЗЫКАЛЬНЫЙ ЭФФЕКТ УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
         logger.error(f"Ошибка в apply_musical_voice_effect: {str(e)}")
+        logger.exception("Полный стек ошибки:")
         return audio_data, sample_rate
 
 def apply_autotune_effect(audio_data, sample_rate):
     """Применяет эффект автотюна к голосу"""
     try:
+        logger.info("=== НАЧАЛО АВТОТЮНА ===")
+        logger.debug(f"Размер входных данных: {audio_data.shape}, частота: {sample_rate}")
+        
         # Конвертируем numpy array в AudioSegment
         audio = AudioSegment(
             audio_data.tobytes(),
@@ -510,10 +541,12 @@ def apply_autotune_effect(audio_data, sample_rate):
             sample_width=audio_data.dtype.itemsize,
             channels=1
         )
+        logger.debug("Аудио конвертировано в AudioSegment")
         
         # Определяем базовую ноту
         y = audio_data.astype(np.float32)
         f0, voiced_flag, voiced_probs = librosa.pyin(y, fmin=librosa.note_to_hz('C2'), fmax=librosa.note_to_hz('C7'))
+        logger.debug(f"Определена базовая частота: {np.nanmean(f0[voiced_flag]) if np.any(voiced_flag) else 'не определена'}")
         
         if np.any(voiced_flag):
             # Находим среднюю частоту основного тона
@@ -522,33 +555,44 @@ def apply_autotune_effect(audio_data, sample_rate):
             target_f0 = 440.0
             # Вычисляем коэффициент изменения частоты
             ratio = target_f0 / mean_f0
+            logger.debug(f"Коэффициент изменения частоты: {ratio}")
             # Изменяем скорость воспроизведения для изменения высоты тона
             audio = audio._spawn(audio.raw_data, overrides={
                 "frame_rate": int(audio.frame_rate * ratio)
             })
+            logger.debug("Изменена высота тона")
         
         # Добавляем вибрато
-        vibrato = Sine(7).to_audio_segment(duration=len(audio))
-        vibrato = vibrato - 15
+        vibrato = Sine(10).to_audio_segment(duration=len(audio))  # Увеличена частота
+        vibrato = vibrato - 5  # Увеличена громкость
         audio = audio.overlay(vibrato)
+        logger.debug("Добавлено вибрато")
         
         # Компрессия динамического диапазона
-        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
+        audio = compress_dynamic_range(audio, threshold=-10.0, ratio=8.0)  # Усилена компрессия
+        logger.debug("Применена компрессия")
         
         # Нормализация
         audio = normalize(audio)
+        logger.debug("Аудио нормализовано")
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
+        logger.debug(f"Размер выходных данных: {processed_audio.shape}")
+        logger.info("=== АВТОТЮН УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
         logger.error(f"Ошибка в apply_autotune_effect: {str(e)}")
+        logger.exception("Полный стек ошибки:")
         return audio_data, sample_rate
 
 def apply_rough_voice_effect(audio_data, sample_rate):
     """Применяет эффект грубого голоса"""
     try:
+        logger.info("=== НАЧАЛО ЭФФЕКТА ГРУБОГО ГОЛОСА ===")
+        logger.debug(f"Размер входных данных: {audio_data.shape}, частота: {sample_rate}")
+        
         # Конвертируем numpy array в AudioSegment
         audio = AudioSegment(
             audio_data.tobytes(),
@@ -556,32 +600,41 @@ def apply_rough_voice_effect(audio_data, sample_rate):
             sample_width=audio_data.dtype.itemsize,
             channels=1
         )
+        logger.debug("Аудио конвертировано в AudioSegment")
         
         # Добавляем искажение
-        audio = audio + 10  # Усиливаем сигнал для искажения
+        audio = audio + 20  # Усилено искажение
+        logger.debug("Добавлено искажение")
         
         # Добавляем шум
         noise = WhiteNoise().to_audio_segment(duration=len(audio))
-        noise = noise - 20
+        noise = noise - 10  # Увеличена громкость шума
         audio = audio.overlay(noise)
+        logger.debug("Добавлен шум")
         
         # Добавляем квадратную волну
-        square_wave = Square(220).to_audio_segment(duration=len(audio))
-        square_wave = square_wave - 25
+        square_wave = Square(440).to_audio_segment(duration=len(audio))  # Увеличена частота
+        square_wave = square_wave - 15  # Увеличена громкость
         audio = audio.overlay(square_wave)
+        logger.debug("Добавлена квадратная волна")
         
         # Компрессия динамического диапазона
-        audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0)
+        audio = compress_dynamic_range(audio, threshold=-10.0, ratio=8.0)  # Усилена компрессия
+        logger.debug("Применена компрессия")
         
         # Нормализация
         audio = normalize(audio)
+        logger.debug("Аудио нормализовано")
         
         # Конвертируем обратно в numpy array
         processed_audio = np.array(audio.get_array_of_samples())
+        logger.debug(f"Размер выходных данных: {processed_audio.shape}")
+        logger.info("=== ЭФФЕКТ ГРУБОГО ГОЛОСА УСПЕШНО ЗАВЕРШЕН ===")
         return processed_audio, sample_rate
         
     except Exception as e:
         logger.error(f"Ошибка в apply_rough_voice_effect: {str(e)}")
+        logger.exception("Полный стек ошибки:")
         return audio_data, sample_rate
 
 def change_pitch(audio_data, sample_rate, n_steps):
