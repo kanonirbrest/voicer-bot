@@ -534,13 +534,15 @@ def apply_autotune_effect(audio, sample_rate):
         audio = audio / np.max(np.abs(audio))
         logger.debug(f"Аудио нормализовано, диапазон: [{np.min(audio)}, {np.max(audio)}]")
         
-        # Получаем высоту тона
+        # Получаем высоту тона с более высокой точностью
         logger.debug("Получение высоты тона с помощью librosa.piptrack")
         pitches, magnitudes = librosa.piptrack(
             y=audio,
             sr=sample_rate,
             fmin=librosa.note_to_hz('C2'),
-            fmax=librosa.note_to_hz('C7')
+            fmax=librosa.note_to_hz('C7'),
+            hop_length=512,  # Уменьшаем размер окна для большей точности
+            win_length=2048
         )
         logger.debug(f"Размеры pitches: {pitches.shape}, magnitudes: {magnitudes.shape}")
         
@@ -548,39 +550,75 @@ def apply_autotune_effect(audio, sample_rate):
         logger.debug("Поиск наиболее вероятной высоты тона")
         pitch_track = []
         for i in range(pitches.shape[1]):
-            if np.max(magnitudes[:, i]) > 0.1:  # Порог для определения наличия тона
+            if np.max(magnitudes[:, i]) > 0.05:  # Уменьшаем порог для более чувствительного определения
                 index = magnitudes[:, i].argmax()
                 pitch_track.append(pitches[index, i])
             else:
-                pitch_track.append(0)  # Нет тона
+                pitch_track.append(0)
         
         pitch_track = np.array(pitch_track)
         logger.debug(f"Размер pitch_track: {pitch_track.shape}")
         logger.debug(f"Диапазон высот тона: [{np.min(pitch_track[pitch_track > 0])}, {np.max(pitch_track)}]")
         
-        # Сглаживаем трек высоты тона
+        # Сглаживаем трек высоты тона с меньшим окном
         logger.debug("Сглаживание трека высоты тона")
-        pitch_track = librosa.effects.smooth_pitch(pitch_track)
+        pitch_track = librosa.effects.smooth_pitch(pitch_track, window_length=5)
         
-        # Квантуем высоту тона в ближайшую ноту
-        logger.debug("Квантование высоты тона")
+        # Определяем базовую ноту (тональность)
+        valid_pitches = pitch_track[pitch_track > 0]
+        if len(valid_pitches) > 0:
+            base_note = librosa.hz_to_midi(np.median(valid_pitches))
+            # Округляем до ближайшей ноты в мажорной гамме
+            scale_notes = [0, 2, 4, 5, 7, 9, 11]  # Мажорная гамма
+            base_note = np.round(base_note)
+            base_note = base_note - (base_note % 12)  # Округляем до октавы
+        else:
+            base_note = 60  # C4 как базовая нота по умолчанию
+        
+        # Квантуем высоту тона в ноты мажорной гаммы
+        logger.debug("Квантование высоты тона в мажорную гамму")
         notes = librosa.hz_to_midi(pitch_track)
-        quantized_notes = np.round(notes)
+        quantized_notes = np.zeros_like(notes)
+        
+        for i in range(len(notes)):
+            if notes[i] > 0:  # Если есть тон
+                # Находим ближайшую ноту в гамме
+                note_in_scale = notes[i] - base_note
+                octave = np.floor(note_in_scale / 12)
+                note_in_octave = note_in_scale % 12
+                
+                # Находим ближайшую ноту в гамме
+                distances = [abs(note_in_octave - scale_note) for scale_note in scale_notes]
+                closest_scale_note = scale_notes[np.argmin(distances)]
+                
+                # Квантуем в ближайшую ноту гаммы
+                quantized_notes[i] = base_note + octave * 12 + closest_scale_note
+            else:
+                quantized_notes[i] = 0
+        
         quantized_pitches = librosa.midi_to_hz(quantized_notes)
         
-        # Применяем изменение высоты тона
+        # Применяем изменение высоты тона с усилением эффекта
         logger.debug("Применение изменения высоты тона")
         n_steps = librosa.hz_to_midi(quantized_pitches) - librosa.hz_to_midi(pitch_track)
-        n_steps = np.nan_to_num(n_steps, nan=0)  # Заменяем NaN на 0
+        n_steps = np.nan_to_num(n_steps, nan=0)
+        
+        # Усиливаем эффект
+        n_steps = n_steps * 1.2  # Усиливаем на 20%
         
         # Ограничиваем максимальное изменение высоты тона
-        n_steps = np.clip(n_steps, -12, 12)  # Не более октавы вверх или вниз
+        n_steps = np.clip(n_steps, -12, 12)
         
+        # Применяем изменение высоты тона с большим окном для более плавного эффекта
         processed_audio = librosa.effects.pitch_shift(
             audio,
             sr=sample_rate,
-            n_steps=n_steps
+            n_steps=n_steps,
+            bins_per_octave=24  # Увеличиваем разрешение для более точного изменения высоты тона
         )
+        
+        # Добавляем легкую реверберацию для более музыкального звучания
+        processed_audio = librosa.effects.preemphasis(processed_audio)
         
         logger.debug("Эффект автотюна успешно применен")
         logger.debug(f"Размер обработанного аудио: {processed_audio.shape}")
@@ -591,7 +629,6 @@ def apply_autotune_effect(audio, sample_rate):
     except Exception as e:
         logger.error(f"Ошибка при применении автотюна: {str(e)}")
         logger.exception("Полный стек ошибки:")
-        # В случае ошибки возвращаем оригинальное аудио
         return audio, sample_rate
 
 def main():
