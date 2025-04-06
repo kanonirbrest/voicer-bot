@@ -554,20 +554,22 @@ def apply_rough_voice_effect(audio_data, sample_rate):
         audio = AudioSegment(
             audio_data.tobytes(),
             frame_rate=sample_rate,
-            sample_width=audio_data.dtype.itemsize,
+            sample_width=2,  # Явно указываем размер сэмпла в байтах
             channels=1
         )
         
         # Добавляем сильное искажение
-        audio = audio.overlay(audio, gain_during_overlay=30)
+        distorted = audio + 30  # Увеличиваем громкость для искажения
         
         # Добавляем квадратную волну (более высокая частота)
         square_wave = Square(1500).to_audio_segment(duration=len(audio))
-        audio = audio.overlay(square_wave, gain_during_overlay=25)
+        square_wave = square_wave - 5  # Уменьшаем громкость квадратной волны
+        audio = distorted.overlay(square_wave)
         
         # Добавляем белый шум (больше шума)
         noise = WhiteNoise().to_audio_segment(duration=len(audio))
-        audio = audio.overlay(noise, gain_during_overlay=20)
+        noise = noise - 10  # Уменьшаем громкость шума
+        audio = audio.overlay(noise)
         
         # Сильная компрессия динамического диапазона
         audio = audio.compress_dynamic_range(threshold=-25.0, ratio=15.0, attack=5.0, release=50.0)
