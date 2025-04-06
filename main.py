@@ -5,24 +5,19 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from pydub import AudioSegment
 import numpy as np
 import soundfile as sf
-import librosa
 import io
 import tempfile
 from scipy import signal
-import pyworld as pw
-import crepe
-from scipy.signal import resample_poly
 
 # Загрузка переменных окружения
 load_dotenv()
 TOKEN = os.getenv('TELEGRAM_TOKEN')
 
-# Эффекты для голоса
+# Словарь с эффектами
 EFFECTS = {
-    'autotune': 'Профессиональный автотюн',
-    'musical': 'Музыкальный автотюн',
     'robot': 'Эффект робота',
-    'rough': 'Грубый голос'
+    'rough': 'Грубый голос',
+    'echo': 'Эффект эха'
 }
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,42 +27,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Как использовать:\n"
         "1. Ответьте на голосовое сообщение\n"
         "2. Выберите эффект\n"
-        "3. Получите обработанное сообщение\n\n"
-        "Или используйте меня в инлайн-режиме: @voicer_132_bot эффект"
+        "3. Получите обработанное сообщение"
     )
-
-async def inline_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик инлайн-запросов"""
-    query = update.inline_query.query.lower()
-    results = []
-    
-    # Если запрос пустой, показываем все эффекты
-    if not query:
-        for effect_id, effect_name in EFFECTS.items():
-            results.append({
-                'type': 'article',
-                'id': effect_id,
-                'title': effect_name,
-                'description': f'Применить эффект {effect_name}',
-                'input_message_content': {
-                    'message_text': f'Выбран эффект: {effect_name}\n\nОтправьте голосовое сообщение для обработки.'
-                }
-            })
-    else:
-        # Ищем эффекты по запросу
-        for effect_id, effect_name in EFFECTS.items():
-            if query in effect_name.lower() or query in effect_id:
-                results.append({
-                    'type': 'article',
-                    'id': effect_id,
-                    'title': effect_name,
-                    'description': f'Применить эффект {effect_name}',
-                    'input_message_content': {
-                        'message_text': f'Выбран эффект: {effect_name}\n\nОтправьте голосовое сообщение для обработки.'
-                    }
-                })
-    
-    await update.inline_query.answer(results)
 
 async def handle_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик ответов на сообщения"""
@@ -113,14 +74,12 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sample_rate = audio.frame_rate
         
         # Применяем эффект
-        if effect == 'autotune':
-            processed_audio = apply_autotune(wav_data, sample_rate)
-        elif effect == 'musical':
-            processed_audio = apply_musical_autotune(wav_data, sample_rate)
-        elif effect == 'robot':
+        if effect == 'robot':
             processed_audio = apply_robot_effect(wav_data, sample_rate)
         elif effect == 'rough':
             processed_audio = apply_rough_voice(wav_data, sample_rate)
+        elif effect == 'echo':
+            processed_audio = apply_echo_effect(wav_data, sample_rate)
         else:
             await message.edit_text("Неизвестный эффект.")
             return
@@ -139,59 +98,6 @@ async def apply_effect(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Удаляем сообщение с кнопками
             await message.delete()
-
-def apply_autotune(audio, sample_rate):
-    """Применение профессионального автотюна"""
-    # Используем CREPE для определения высоты тона
-    time, frequency, confidence, activation = crepe.predict(audio, sample_rate, viterbi=True)
-    
-    # Создаем синусоидальный сигнал с нужной частотой
-    t = np.arange(len(audio)) / sample_rate
-    processed_audio = np.zeros_like(audio, dtype=np.float32)
-    
-    for i in range(len(time)):
-        if confidence[i] > 0.5:  # Используем только уверенные предсказания
-            freq = frequency[i]
-            if freq > 0:  # Игнорируем немые участки
-                start_idx = int(time[i] * sample_rate)
-                end_idx = min(int(time[i+1] * sample_rate) if i+1 < len(time) else len(audio), len(audio))
-                duration = (end_idx - start_idx) / sample_rate
-                
-                if duration > 0:
-                    t_segment = np.arange(start_idx, end_idx) / sample_rate
-                    segment = np.sin(2 * np.pi * freq * t_segment)
-                    processed_audio[start_idx:end_idx] = segment * 0.5
-    
-    return processed_audio
-
-def apply_musical_autotune(audio, sample_rate):
-    """Применение музыкального автотюна"""
-    # Определяем ноты
-    pitches, magnitudes = librosa.piptrack(y=audio, sr=sample_rate)
-    
-    # Находим доминирующую частоту для каждого кадра
-    pitch = []
-    for t in range(pitches.shape[1]):
-        index = magnitudes[:, t].argmax()
-        pitch.append(pitches[index, t])
-    
-    # Квантуем частоты к ближайшей ноте
-    notes = librosa.hz_to_note(np.array(pitch))
-    quantized_freqs = librosa.note_to_hz(notes)
-    
-    # Создаем новый сигнал
-    t = np.arange(len(audio)) / sample_rate
-    processed_audio = np.zeros_like(audio)
-    
-    frame_length = len(audio) // len(quantized_freqs)
-    for i, freq in enumerate(quantized_freqs):
-        if not np.isnan(freq):
-            start = i * frame_length
-            end = min((i + 1) * frame_length, len(audio))
-            t_segment = t[start:end]
-            processed_audio[start:end] = np.sin(2 * np.pi * freq * t_segment) * 0.5
-    
-    return processed_audio
 
 def apply_robot_effect(audio, sample_rate):
     """Применение эффекта робота"""
@@ -218,6 +124,31 @@ def apply_rough_voice(audio, sample_rate):
     
     return processed_audio
 
+def apply_echo_effect(audio, sample_rate):
+    """Применение эффекта эха"""
+    # Задержка в секундах
+    delay = 0.3
+    # Количество повторов
+    repeats = 3
+    # Затухание
+    decay = 0.5
+    
+    # Создаем задержанные копии
+    processed_audio = np.copy(audio)
+    delay_samples = int(delay * sample_rate)
+    
+    for i in range(1, repeats + 1):
+        # Создаем задержанную копию
+        delayed = np.zeros_like(audio)
+        delayed[i * delay_samples:] = audio[:-i * delay_samples] if i * delay_samples < len(audio) else 0
+        # Добавляем с затуханием
+        processed_audio += delayed * (decay ** i)
+    
+    # Нормализуем
+    processed_audio = processed_audio / np.max(np.abs(processed_audio))
+    
+    return processed_audio
+
 def main():
     """Основная функция"""
     # Создаем приложение
@@ -227,7 +158,6 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.REPLY, handle_reply))
     application.add_handler(CallbackQueryHandler(apply_effect))
-    application.add_handler(InlineQueryHandler(inline_query))
     
     # Запускаем бота
     print("Бот запущен")
