@@ -14,7 +14,6 @@ from scipy import signal
 import logging
 import subprocess
 import librosa
-import librosa.display
 
 # Настройка логирования
 logging.basicConfig(
